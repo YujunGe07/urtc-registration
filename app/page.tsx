@@ -12,9 +12,11 @@ import {
   LayoutDashboard,
   LockKeyhole,
   Mail,
+  Plus,
   Search,
   ShieldCheck,
   Sparkles,
+  Trash2,
   UserCog,
   UserPlus,
   Users,
@@ -649,6 +651,56 @@ export default function Home() {
     });
   }
 
+  function addBlock() {
+    const id = `b-${crypto.randomUUID()}`;
+    const block: Block = {
+      id,
+      title: 'New editable track block',
+      track: 'AI and Systems',
+      type: 'Paper',
+      date: '2027-05-15',
+      start: '13:00',
+      end: '13:48',
+      room: 'Packard room TBD',
+      capacityPerPeriod: 1,
+      presentationMinutes: 8,
+      chair: 'Session chair TBD',
+    };
+    setState((current) => ({
+      ...current,
+      blocks: [...current.blocks, block],
+      log: [log('Organizer', 'New track block created.'), ...current.log],
+    }));
+    setSelectedBlockId(id);
+    setMessage('New block created. Edit the details in the block editor.');
+  }
+
+  function deleteBlock(blockId: string) {
+    if (state.blocks.length <= 1) {
+      setMessage('At least one booking block is required.');
+      return;
+    }
+    const deleted = state.blocks.find((block) => block.id === blockId);
+    setState((current) => {
+      const remaining = current.blocks.filter((block) => block.id !== blockId);
+      return {
+        ...current,
+        blocks: remaining,
+        submissions: current.submissions.map((submission) =>
+          submission.assignedPeriodId?.startsWith(`${blockId}__`)
+            ? { ...submission, assignedPeriodId: null, status: 'unscheduled' }
+            : submission,
+        ),
+        log: [
+          log('Organizer', `${deleted?.title ?? 'Track block'} deleted; affected bookings cleared.`),
+          ...current.log,
+        ],
+      };
+    });
+    setSelectedBlockId(state.blocks.find((block) => block.id !== blockId)?.id ?? seedState.blocks[0].id);
+    setMessage('Block deleted. Any bookings inside that block were cleared.');
+  }
+
   return (
     <main className="min-h-screen bg-background text-foreground">
       {role === 'home' ? (
@@ -697,6 +749,8 @@ export default function Home() {
               setSelectedBlockId={setSelectedBlockId}
               updateBlock={updateBlock}
               moveBlock={moveBlock}
+              addBlock={addBlock}
+              deleteBlock={deleteBlock}
               draft={draft}
               setDraft={setDraft}
               registerSubmission={registerSubmission}
@@ -954,18 +1008,22 @@ function PresenterWorkspace(props: {
                 <label className="space-y-1">
                   <span className="text-xs font-medium text-muted-foreground">Name</span>
                   <Input value={props.activePresenter.name} onChange={(event) => props.updatePresenter('name', event.target.value)} />
+                  <p className="text-xs leading-5 text-muted-foreground">This is the display name used in the conference program.</p>
                 </label>
                 <label className="space-y-1">
                   <span className="text-xs font-medium text-muted-foreground">Email</span>
                   <Input value={props.activePresenter.email} onChange={(event) => props.updatePresenter('email', event.target.value)} />
+                  <p className="text-xs leading-5 text-muted-foreground">Confirmation and schedule-change messages go here.</p>
                 </label>
                 <label className="space-y-1">
                   <span className="text-xs font-medium text-muted-foreground">Institution</span>
                   <Input value={props.activePresenter.institution} onChange={(event) => props.updatePresenter('institution', event.target.value)} />
+                  <p className="text-xs leading-5 text-muted-foreground">Shown beside your name in internal schedules and program drafts.</p>
                 </label>
                 <label className="space-y-1">
                   <span className="text-xs font-medium text-muted-foreground">Time zone</span>
                   <Input value={props.activePresenter.timezone} onChange={(event) => props.updatePresenter('timezone', event.target.value)} />
+                  <p className="text-xs leading-5 text-muted-foreground">Used to make scheduling times clear for presenters traveling to Stanford.</p>
                 </label>
                 <Button className="w-full" onClick={() => props.setStep('book')}>
                   Details are correct
@@ -1122,6 +1180,8 @@ function OrganizerWorkspace(props: {
   setSelectedBlockId: (id: string) => void;
   updateBlock: (blockId: string, patch: Partial<Block>) => void;
   moveBlock: (blockId: string, direction: -1 | 1) => void;
+  addBlock: () => void;
+  deleteBlock: (blockId: string) => void;
   draft: Draft;
   setDraft: (draft: Draft) => void;
   registerSubmission: () => void;
@@ -1225,15 +1285,23 @@ function OrganizerWorkspace(props: {
               <div>
                 <PanelTitle icon={<Layers3 />}>Track block editor</PanelTitle>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Change the order and rules that generate presenter booking periods.
+                  Select any block, edit its schedule rules, reorder it, or create a new one.
                 </p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={props.addBlock}>
+                  <Plus data-icon="inline-start" />
+                  New block
+                </Button>
                 <Button variant="outline" onClick={() => props.moveBlock(selectedBlock.id, -1)}>
                   Move up
                 </Button>
                 <Button variant="outline" onClick={() => props.moveBlock(selectedBlock.id, 1)}>
                   Move down
+                </Button>
+                <Button variant="destructive" onClick={() => props.deleteBlock(selectedBlock.id)}>
+                  <Trash2 data-icon="inline-start" />
+                  Delete
                 </Button>
               </div>
             </div>
@@ -1272,6 +1340,7 @@ function OrganizerWorkspace(props: {
                   <label className="space-y-1">
                     <span className="text-xs font-medium text-muted-foreground">Block title</span>
                     <Input value={selectedBlock.title} onChange={(event) => props.updateBlock(selectedBlock.id, { title: event.target.value })} />
+                    <p className="text-xs leading-5 text-muted-foreground">Shown to presenters as the name of the session block.</p>
                   </label>
                   <div className="grid grid-cols-2 gap-3">
                     <label className="space-y-1">
@@ -1279,12 +1348,14 @@ function OrganizerWorkspace(props: {
                       <NativeSelect value={selectedBlock.track} onChange={(event) => props.updateBlock(selectedBlock.id, { track: event.target.value as Track })}>
                         {tracks.map((track) => <option key={track}>{track}</option>)}
                       </NativeSelect>
+                      <p className="text-xs leading-5 text-muted-foreground">Only presenters in this track can see this block.</p>
                     </label>
                     <label className="space-y-1">
                       <span className="text-xs font-medium text-muted-foreground">Type</span>
                       <NativeSelect value={selectedBlock.type} onChange={(event) => props.updateBlock(selectedBlock.id, { type: event.target.value as PresentationType })}>
                         {Object.keys(typeDurations).map((type) => <option key={type}>{type}</option>)}
                       </NativeSelect>
+                      <p className="text-xs leading-5 text-muted-foreground">Paper, poster, lightning talk, or workshop eligibility.</p>
                     </label>
                   </div>
                   <div className="grid grid-cols-3 gap-3">
@@ -1298,15 +1369,18 @@ function OrganizerWorkspace(props: {
                     <label className="space-y-1">
                       <span className="text-xs font-medium text-muted-foreground">Start</span>
                       <Input type="time" value={selectedBlock.start} onChange={(event) => props.updateBlock(selectedBlock.id, { start: event.target.value })} />
+                      <p className="text-xs leading-5 text-muted-foreground">First possible presenter start time.</p>
                     </label>
                     <label className="space-y-1">
                       <span className="text-xs font-medium text-muted-foreground">End</span>
                       <Input type="time" value={selectedBlock.end} onChange={(event) => props.updateBlock(selectedBlock.id, { end: event.target.value })} />
+                      <p className="text-xs leading-5 text-muted-foreground">No start times are generated after this block ends.</p>
                     </label>
                   </div>
                   <label className="space-y-1">
                     <span className="text-xs font-medium text-muted-foreground">Location</span>
                     <Input value={selectedBlock.room} onChange={(event) => props.updateBlock(selectedBlock.id, { room: event.target.value })} />
+                    <p className="text-xs leading-5 text-muted-foreground">Room or poster area shown in confirmations and exports.</p>
                   </label>
                   <div className="grid grid-cols-2 gap-3">
                     <label className="space-y-1">
@@ -1318,6 +1392,7 @@ function OrganizerWorkspace(props: {
                         value={selectedBlock.presentationMinutes}
                         onChange={(event) => props.updateBlock(selectedBlock.id, { presentationMinutes: Number(event.target.value) || 8 })}
                       />
+                      <p className="text-xs leading-5 text-muted-foreground">Length of each bookable presenter period.</p>
                     </label>
                     <label className="space-y-1">
                       <span className="text-xs font-medium text-muted-foreground">Spots per start</span>
@@ -1328,6 +1403,7 @@ function OrganizerWorkspace(props: {
                         value={selectedBlock.capacityPerPeriod}
                         onChange={(event) => props.updateBlock(selectedBlock.id, { capacityPerPeriod: Number(event.target.value) || 1 })}
                       />
+                      <p className="text-xs leading-5 text-muted-foreground">How many presenters can choose the same start time.</p>
                     </label>
                   </div>
                   <label className="space-y-1">
