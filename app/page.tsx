@@ -16,6 +16,8 @@ import {
   ShieldCheck,
   Sparkles,
   Unlock,
+  UserCog,
+  UserPlus,
   Users,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
@@ -117,6 +119,23 @@ type SchedulerState = {
   presentations: Presentation[];
   slots: Slot[];
   audit: AuditEvent[];
+};
+
+type PortalMode = 'home' | 'presenter' | 'organizer';
+
+type AcceptedPresentationDraft = {
+  submissionId: string;
+  title: string;
+  presenterName: string;
+  presenterEmail: string;
+  institution: string;
+  timezone: string;
+  arrival: string;
+  departure: string;
+  type: PresentationType;
+  track: Track;
+  av: string;
+  notes: string;
 };
 
 const tracks: Track[] = [
@@ -545,15 +564,40 @@ function audit(actor: string, action: string, detail: string): AuditEvent {
   };
 }
 
+const blankDraft: AcceptedPresentationDraft = {
+  submissionId: '',
+  title: '',
+  presenterName: '',
+  presenterEmail: '',
+  institution: '',
+  timezone: 'America/Los_Angeles',
+  arrival: '',
+  departure: '',
+  type: 'Full paper',
+  track: 'AI and Systems',
+  av: '',
+  notes: '',
+};
+
+function tokenFrom(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '')
+    .slice(0, 36);
+}
+
 export default function Home() {
   const [state, setState] = useState<SchedulerState>(seedState);
   const [activeToken, setActiveToken] = useState(seedState.presentations[1].token);
+  const [portal, setPortal] = useState<PortalMode>('home');
   const [selectedTab, setSelectedTab] = useState('presenter');
   const [trackFilter, setTrackFilter] = useState<Track | 'All'>('All');
   const [typeFilter, setTypeFilter] = useState<PresentationType | 'All'>('All');
   const [statusFilter, setStatusFilter] = useState<Presentation['status'] | 'All'>('All');
   const [query, setQuery] = useState('');
   const [helpReason, setHelpReason] = useState('');
+  const [draft, setDraft] = useState<AcceptedPresentationDraft>(blankDraft);
   const [toast, setToast] = useState('Prototype data is local to this browser.');
 
   useEffect(() => {
@@ -562,7 +606,18 @@ export default function Home() {
       setState(JSON.parse(saved) as SchedulerState);
     }
     const token = new URLSearchParams(window.location.search).get('token');
-    if (token) setActiveToken(token);
+    const mode = new URLSearchParams(window.location.search).get('mode');
+    if (token) {
+      setActiveToken(token);
+      setPortal('presenter');
+      setSelectedTab('presenter');
+    } else if (mode === 'organizer') {
+      setPortal('organizer');
+      setSelectedTab('register');
+    } else if (mode === 'presenter') {
+      setPortal('presenter');
+      setSelectedTab('presenter');
+    }
   }, []);
 
   useEffect(() => {
@@ -747,6 +802,21 @@ export default function Home() {
     setToast('Marked for organizer follow-up.');
   }
 
+  function updateActivePresenter(field: keyof Presenter, value: string) {
+    if (!activePresenter) return;
+    setState((current) => ({
+      ...current,
+      presenters: current.presenters.map((presenter) =>
+        presenter.id === activePresenter.id
+          ? {
+              ...presenter,
+              [field]: value,
+            }
+          : presenter,
+      ),
+    }));
+  }
+
   function organizerAssign(presentationId: string, slotId: string) {
     const presentation = state.presentations.find((item) => item.id === presentationId);
     if (!presentation) return;
@@ -835,6 +905,72 @@ export default function Home() {
     setToast(`Reminder prepared for ${presenter?.name ?? 'presenter'}.`);
   }
 
+  function choosePortal(mode: PortalMode) {
+    setPortal(mode);
+    if (mode === 'organizer') {
+      setSelectedTab('register');
+      window.history.replaceState(null, '', '?mode=organizer');
+    } else if (mode === 'presenter') {
+      setSelectedTab('presenter');
+      window.history.replaceState(null, '', `?mode=presenter&token=${activeToken}`);
+    } else {
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+  }
+
+  function registerAcceptedPresentation() {
+    if (!draft.submissionId || !draft.title || !draft.presenterName || !draft.presenterEmail) {
+      setToast('Submission ID, title, presenter name, and email are required.');
+      return;
+    }
+    const presenterId = `pr-${crypto.randomUUID()}`;
+    const presentationId = `paper-${crypto.randomUUID()}`;
+    const baseToken = tokenFrom(`${draft.presenterName}-${draft.submissionId}`);
+    const token = `${baseToken || 'presenter'}-${crypto.randomUUID().slice(0, 8)}`;
+    const newPresenter: Presenter = {
+      id: presenterId,
+      name: draft.presenterName,
+      email: draft.presenterEmail,
+      institution: draft.institution,
+      timezone: draft.timezone,
+      arrival: draft.arrival || 'Not provided',
+      departure: draft.departure || 'Not provided',
+    };
+    const newPresentation: Presentation = {
+      id: presentationId,
+      submissionId: draft.submissionId,
+      title: draft.title,
+      type: draft.type,
+      track: draft.track,
+      durationMinutes: typeDurations[draft.type],
+      presenterIds: [presenterId],
+      controllerId: presenterId,
+      token,
+      status: 'unscheduled',
+      assignedSlotId: null,
+      locked: false,
+      notes: draft.notes || 'Registered by organizer.',
+      av: draft.av || 'Not specified',
+    };
+
+    setState((current) => ({
+      ...current,
+      presenters: [...current.presenters, newPresenter],
+      presentations: [...current.presentations, newPresentation],
+      audit: [
+        audit(
+          'Organizer',
+          'Registered accepted presentation',
+          `${draft.submissionId} added with presenter link token ${token}.`,
+        ),
+        ...current.audit,
+      ],
+    }));
+    setDraft(blankDraft);
+    setActiveToken(token);
+    setToast(`Accepted presentation registered. Presenter link token: ${token}`);
+  }
+
   return (
     <main className="min-h-screen bg-background text-foreground">
       <section className="border-b border-border bg-card">
@@ -846,10 +982,18 @@ export default function Home() {
                 Stanford URTC 2027 scheduling prototype
               </p>
               <h1 className="mt-2 max-w-3xl text-3xl font-semibold tracking-tight sm:text-4xl">
-                Presenter self-scheduling for accepted talks, posters, and workshops
+                Separate registration flows for organizers and accepted presenters
               </h1>
             </div>
             <div className="flex flex-wrap gap-2">
+              <Button variant={portal === 'presenter' ? 'default' : 'outline'} onClick={() => choosePortal('presenter')}>
+                <UserPlus data-icon="inline-start" />
+                Presenter registration
+              </Button>
+              <Button variant={portal === 'organizer' ? 'default' : 'outline'} onClick={() => choosePortal('organizer')}>
+                <UserCog data-icon="inline-start" />
+                Organizer workspace
+              </Button>
               <Button
                 variant="outline"
                 onClick={() => {
@@ -874,28 +1018,221 @@ export default function Home() {
             </div>
           </div>
 
+          {portal !== 'presenter' ? (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Metric label="Scheduled" value={`${scheduled}/${state.presentations.length}`} icon={<CalendarCheck />} tone="green" />
             <Metric label="Needs follow-up" value={String(needsHelp)} icon={<AlertCircle />} tone="amber" />
             <Metric label="Slot capacity used" value={`${capacityUsed}/${capacityTotal}`} icon={<Users />} tone="blue" />
             <Metric label="Scheduling deadline" value="Apr 23, 2027" icon={<Clock3 />} tone="ink" />
           </div>
+          ) : null}
         </div>
       </section>
 
       <section className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        {portal === 'home' ? (
+          <div className="grid gap-5 lg:grid-cols-2">
+            <Panel className="min-h-[300px]">
+              <div className="flex h-full flex-col justify-between">
+                <div>
+                  <PanelTitle icon={<UserCog />}>Organizer registration and scheduling</PanelTitle>
+                  <p className="mt-4 text-sm leading-6 text-muted-foreground">
+                    Use this side to register accepted presentations, generate private presenter links, define assignments, lock records, and export the final schedule.
+                  </p>
+                  <div className="mt-5 space-y-2 text-sm text-muted-foreground">
+                    <p>Best for: Yujun, Gim Soon, IEEE staff, and session coordinators.</p>
+                    <p>Starts with: accepted paper entry and organizer dashboard.</p>
+                  </div>
+                </div>
+                <Button className="mt-6 w-full" onClick={() => choosePortal('organizer')}>
+                  Open organizer workspace
+                </Button>
+              </div>
+            </Panel>
+            <Panel className="min-h-[300px]">
+              <div className="flex h-full flex-col justify-between">
+                <div>
+                  <PanelTitle icon={<UserPlus />}>Presenter registration link</PanelTitle>
+                  <p className="mt-4 text-sm leading-6 text-muted-foreground">
+                    Use this side to simulate the private link an accepted presenter receives. They confirm basic presenter details, choose a valid slot, or ask for help.
+                  </p>
+                  <div className="mt-5 space-y-2 text-sm text-muted-foreground">
+                    <p>Best for: undergraduate presenters and one scheduling controller per accepted paper.</p>
+                    <p>Starts with: token-authenticated registration and slot selection.</p>
+                  </div>
+                </div>
+                <Button className="mt-6 w-full" onClick={() => choosePortal('presenter')}>
+                  Open presenter registration
+                </Button>
+              </div>
+            </Panel>
+          </div>
+        ) : null}
+
+        {portal !== 'home' ? (
         <Tabs value={selectedTab} onValueChange={setSelectedTab} className="gap-5">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <TabsList className="w-full overflow-x-auto lg:w-fit">
-              <TabsTrigger value="presenter">Presenter link</TabsTrigger>
-              <TabsTrigger value="organizer">Organizer board</TabsTrigger>
-              <TabsTrigger value="schedule">Schedule grid</TabsTrigger>
-              <TabsTrigger value="rules">Rules and schema</TabsTrigger>
+              {portal === 'presenter' ? (
+                <TabsTrigger value="presenter">Presenter registration</TabsTrigger>
+              ) : (
+                <>
+                  <TabsTrigger value="register">Register accepted presentation</TabsTrigger>
+                  <TabsTrigger value="organizer">Organizer board</TabsTrigger>
+                  <TabsTrigger value="schedule">Schedule grid</TabsTrigger>
+                  <TabsTrigger value="rules">Rules and schema</TabsTrigger>
+                </>
+              )}
             </TabsList>
             <div className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
               {toast}
             </div>
           </div>
+
+          <TabsContent value="register">
+            <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
+              <Panel>
+                <div className="border-b border-border pb-4">
+                  <PanelTitle icon={<UserPlus />}>Register an accepted presentation</PanelTitle>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Organizers enter accepted-paper metadata here. The system creates the private presenter registration token.
+                  </p>
+                </div>
+
+                <div className="mt-5 grid gap-4 md:grid-cols-2">
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium">Submission ID</span>
+                    <Input
+                      value={draft.submissionId}
+                      onChange={(event) => setDraft({ ...draft, submissionId: event.target.value })}
+                      placeholder="SURTC-2027-###"
+                    />
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium">Presentation title</span>
+                    <Input
+                      value={draft.title}
+                      onChange={(event) => setDraft({ ...draft, title: event.target.value })}
+                      placeholder="Accepted presentation title"
+                    />
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium">Presenter name</span>
+                    <Input
+                      value={draft.presenterName}
+                      onChange={(event) => setDraft({ ...draft, presenterName: event.target.value })}
+                      placeholder="Scheduling controller"
+                    />
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium">Presenter email</span>
+                    <Input
+                      value={draft.presenterEmail}
+                      onChange={(event) => setDraft({ ...draft, presenterEmail: event.target.value })}
+                      placeholder="presenter@example.edu"
+                    />
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium">Institution</span>
+                    <Input
+                      value={draft.institution}
+                      onChange={(event) => setDraft({ ...draft, institution: event.target.value })}
+                      placeholder="University or college"
+                    />
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium">Time zone</span>
+                    <Input
+                      value={draft.timezone}
+                      onChange={(event) => setDraft({ ...draft, timezone: event.target.value })}
+                    />
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium">Presentation type</span>
+                    <NativeSelect
+                      value={draft.type}
+                      onChange={(event) =>
+                        setDraft({
+                          ...draft,
+                          type: event.target.value as PresentationType,
+                        })
+                      }
+                    >
+                      {presentationTypes.map((type) => (
+                        <option key={type}>{type}</option>
+                      ))}
+                    </NativeSelect>
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium">Technical track</span>
+                    <NativeSelect
+                      value={draft.track}
+                      onChange={(event) => setDraft({ ...draft, track: event.target.value as Track })}
+                    >
+                      {tracks.map((track) => (
+                        <option key={track}>{track}</option>
+                      ))}
+                    </NativeSelect>
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium">Arrival constraint</span>
+                    <Input
+                      value={draft.arrival}
+                      onChange={(event) => setDraft({ ...draft, arrival: event.target.value })}
+                      placeholder="Saturday morning, Friday evening..."
+                    />
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium">Departure constraint</span>
+                    <Input
+                      value={draft.departure}
+                      onChange={(event) => setDraft({ ...draft, departure: event.target.value })}
+                      placeholder="Sunday noon, Sunday afternoon..."
+                    />
+                  </label>
+                  <label className="space-y-2 md:col-span-2">
+                    <span className="text-sm font-medium">AV or accessibility needs</span>
+                    <Input
+                      value={draft.av}
+                      onChange={(event) => setDraft({ ...draft, av: event.target.value })}
+                      placeholder="Projector, poster board, power, table space..."
+                    />
+                  </label>
+                  <label className="space-y-2 md:col-span-2">
+                    <span className="text-sm font-medium">Internal organizer notes</span>
+                    <Textarea
+                      value={draft.notes}
+                      onChange={(event) => setDraft({ ...draft, notes: event.target.value })}
+                      placeholder="Reviewer notes, grouping preferences, special handling."
+                    />
+                  </label>
+                </div>
+
+                <div className="mt-5 flex flex-wrap gap-2">
+                  <Button onClick={registerAcceptedPresentation}>
+                    <UserPlus data-icon="inline-start" />
+                    Register and generate presenter link
+                  </Button>
+                  <Button variant="outline" onClick={() => setDraft(blankDraft)}>
+                    Clear form
+                  </Button>
+                </div>
+              </Panel>
+
+              <Panel>
+                <PanelTitle icon={<Link2 />}>Presenter link preview</PanelTitle>
+                <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                  After registration, the generated token opens the presenter-only side. In the real build, this would be emailed to the scheduling controller.
+                </p>
+                <div className="mt-4 rounded-lg border border-border bg-muted/35 p-3 font-mono text-xs">
+                  ?token={activeToken}
+                </div>
+                <Button className="mt-4 w-full" variant="outline" onClick={() => choosePortal('presenter')}>
+                  Test presenter registration link
+                </Button>
+              </Panel>
+            </div>
+          </TabsContent>
 
           <TabsContent value="presenter">
             <div className="grid gap-5 lg:grid-cols-[360px_minmax(0,1fr)]">
@@ -955,6 +1292,59 @@ export default function Home() {
                     </div>
                   </div>
                   <StatusBadge status={activePresentation.status} />
+                </div>
+
+                <div className="mt-5 rounded-lg border border-border bg-muted/35 p-4">
+                  <div className="flex flex-col gap-1">
+                    <p className="font-medium">Confirm presenter registration details</p>
+                    <p className="text-sm text-muted-foreground">
+                      These fields belong to the accepted presenter link. Organizers can still edit the record later.
+                    </p>
+                  </div>
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <label className="space-y-2">
+                      <span className="text-sm font-medium">Presenter name</span>
+                      <Input
+                        value={activePresenter?.name ?? ''}
+                        onChange={(event) => updateActivePresenter('name', event.target.value)}
+                      />
+                    </label>
+                    <label className="space-y-2">
+                      <span className="text-sm font-medium">Email</span>
+                      <Input
+                        value={activePresenter?.email ?? ''}
+                        onChange={(event) => updateActivePresenter('email', event.target.value)}
+                      />
+                    </label>
+                    <label className="space-y-2">
+                      <span className="text-sm font-medium">Institution</span>
+                      <Input
+                        value={activePresenter?.institution ?? ''}
+                        onChange={(event) => updateActivePresenter('institution', event.target.value)}
+                      />
+                    </label>
+                    <label className="space-y-2">
+                      <span className="text-sm font-medium">Time zone</span>
+                      <Input
+                        value={activePresenter?.timezone ?? ''}
+                        onChange={(event) => updateActivePresenter('timezone', event.target.value)}
+                      />
+                    </label>
+                    <label className="space-y-2">
+                      <span className="text-sm font-medium">Arrival constraint</span>
+                      <Input
+                        value={activePresenter?.arrival ?? ''}
+                        onChange={(event) => updateActivePresenter('arrival', event.target.value)}
+                      />
+                    </label>
+                    <label className="space-y-2">
+                      <span className="text-sm font-medium">Departure constraint</span>
+                      <Input
+                        value={activePresenter?.departure ?? ''}
+                        onChange={(event) => updateActivePresenter('departure', event.target.value)}
+                      />
+                    </label>
+                  </div>
                 </div>
 
                 {activeSlot ? (
@@ -1307,6 +1697,7 @@ export default function Home() {
             </div>
           </TabsContent>
         </Tabs>
+        ) : null}
       </section>
     </main>
   );
