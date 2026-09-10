@@ -9,6 +9,7 @@ import {
   FileDown,
   Filter,
   Link2,
+  LogIn,
   Lock,
   Mail,
   RotateCcw,
@@ -598,6 +599,7 @@ export default function Home() {
   const [query, setQuery] = useState('');
   const [helpReason, setHelpReason] = useState('');
   const [draft, setDraft] = useState<AcceptedPresentationDraft>(blankDraft);
+  const [tokenEntry, setTokenEntry] = useState(seedState.presentations[1].token);
   const [toast, setToast] = useState('Prototype data is local to this browser.');
 
   useEffect(() => {
@@ -609,6 +611,7 @@ export default function Home() {
     const mode = new URLSearchParams(window.location.search).get('mode');
     if (token) {
       setActiveToken(token);
+      setTokenEntry(token);
       setPortal('presenter');
       setSelectedTab('presenter');
     } else if (mode === 'organizer') {
@@ -979,21 +982,40 @@ export default function Home() {
             <div>
               <p className="flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
                 <ShieldCheck className="size-4 text-primary" />
-                Stanford URTC 2027 scheduling prototype
+                Stanford URTC 2027 scheduling portal
               </p>
               <h1 className="mt-2 max-w-3xl text-3xl font-semibold tracking-tight sm:text-4xl">
-                Separate registration flows for organizers and accepted presenters
+                {portal === 'home'
+                  ? 'Choose your conference workspace'
+                  : portal === 'organizer'
+                    ? 'Organizer workspace'
+                    : 'Presenter workspace'}
               </h1>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+                {portal === 'home'
+                  ? 'A public intro page sends each person to the right private workspace. Organizer and presenter sign-in can be added independently later.'
+                  : portal === 'organizer'
+                    ? 'For conference staff managing accepted submissions, presenter invitations, scheduling rules, and exports.'
+                    : 'For accepted presenters confirming their information and selecting an eligible presentation time.'}
+              </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button variant={portal === 'presenter' ? 'default' : 'outline'} onClick={() => choosePortal('presenter')}>
-                <UserPlus data-icon="inline-start" />
-                Presenter registration
-              </Button>
-              <Button variant={portal === 'organizer' ? 'default' : 'outline'} onClick={() => choosePortal('organizer')}>
-                <UserCog data-icon="inline-start" />
-                Organizer workspace
-              </Button>
+              {portal === 'home' ? (
+                <>
+                  <Button onClick={() => choosePortal('presenter')}>
+                    <UserPlus data-icon="inline-start" />
+                    I am a presenter
+                  </Button>
+                  <Button variant="outline" onClick={() => choosePortal('organizer')}>
+                    <UserCog data-icon="inline-start" />
+                    I am an organizer
+                  </Button>
+                </>
+              ) : (
+                <Button variant="outline" onClick={() => choosePortal('home')}>
+                  Back to intro
+                </Button>
+              )}
               <Button
                 variant="outline"
                 onClick={() => {
@@ -1004,21 +1026,23 @@ export default function Home() {
                 <RotateCcw data-icon="inline-start" />
                 Reset demo
               </Button>
-              <Button
-                onClick={() =>
-                  downloadText(
-                    'stanford-urtc-2027-schedule.csv',
-                    exportSchedule(state),
-                  )
-                }
-              >
-                <Download data-icon="inline-start" />
-                Export schedule
-              </Button>
+              {portal === 'organizer' ? (
+                <Button
+                  onClick={() =>
+                    downloadText(
+                      'stanford-urtc-2027-schedule.csv',
+                      exportSchedule(state),
+                    )
+                  }
+                >
+                  <Download data-icon="inline-start" />
+                  Export schedule
+                </Button>
+              ) : null}
             </div>
           </div>
 
-          {portal !== 'presenter' ? (
+          {portal === 'organizer' ? (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Metric label="Scheduled" value={`${scheduled}/${state.presentations.length}`} icon={<CalendarCheck />} tone="green" />
             <Metric label="Needs follow-up" value={String(needsHelp)} icon={<AlertCircle />} tone="amber" />
@@ -1031,7 +1055,28 @@ export default function Home() {
 
       <section className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         {portal === 'home' ? (
-          <div className="grid gap-5 lg:grid-cols-2">
+          <div className="space-y-5">
+            <Panel className="bg-primary text-primary-foreground">
+              <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-center">
+                <div>
+                  <Badge className="bg-white/15 text-white">Main portal</Badge>
+                  <h2 className="mt-4 text-3xl font-semibold tracking-tight sm:text-5xl">
+                    Stanford URTC scheduling starts here
+                  </h2>
+                  <p className="mt-4 max-w-3xl text-sm leading-6 text-primary-foreground/80 sm:text-base">
+                    Presenters and organizers should not share the same workspace. This intro page routes each role to its own future sign-in and role-specific workflow.
+                  </p>
+                </div>
+                <div className="rounded-lg border border-white/20 bg-white/10 p-4">
+                  <p className="text-sm font-medium">Future authentication model</p>
+                  <div className="mt-3 space-y-2 text-sm text-primary-foreground/80">
+                    <p>Organizers: Stanford, IEEE, or approved admin login.</p>
+                    <p>Presenters: invitation token, email verification, or conference account.</p>
+                  </div>
+                </div>
+              </div>
+            </Panel>
+            <div className="grid gap-5 lg:grid-cols-2">
             <Panel className="min-h-[300px]">
               <div className="flex h-full flex-col justify-between">
                 <div>
@@ -1066,24 +1111,28 @@ export default function Home() {
                 </Button>
               </div>
             </Panel>
+            </div>
           </div>
         ) : null}
 
         {portal !== 'home' ? (
         <Tabs value={selectedTab} onValueChange={setSelectedTab} className="gap-5">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <TabsList className="w-full overflow-x-auto lg:w-fit">
-              {portal === 'presenter' ? (
-                <TabsTrigger value="presenter">Presenter registration</TabsTrigger>
-              ) : (
+            {portal === 'presenter' ? (
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm">
+                <Badge variant="secondary">Presenter-only workspace</Badge>
+                <span className="text-muted-foreground">Private invitation flow</span>
+              </div>
+            ) : (
+              <TabsList className="w-full overflow-x-auto lg:w-fit">
                 <>
                   <TabsTrigger value="register">Register accepted presentation</TabsTrigger>
                   <TabsTrigger value="organizer">Organizer board</TabsTrigger>
                   <TabsTrigger value="schedule">Schedule grid</TabsTrigger>
                   <TabsTrigger value="rules">Rules and schema</TabsTrigger>
                 </>
-              )}
-            </TabsList>
+              </TabsList>
+            )}
             <div className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
               {toast}
             </div>
@@ -1219,18 +1268,30 @@ export default function Home() {
                 </div>
               </Panel>
 
-              <Panel>
-                <PanelTitle icon={<Link2 />}>Presenter link preview</PanelTitle>
-                <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                  After registration, the generated token opens the presenter-only side. In the real build, this would be emailed to the scheduling controller.
-                </p>
-                <div className="mt-4 rounded-lg border border-border bg-muted/35 p-3 font-mono text-xs">
-                  ?token={activeToken}
-                </div>
-                <Button className="mt-4 w-full" variant="outline" onClick={() => choosePortal('presenter')}>
-                  Test presenter registration link
-                </Button>
-              </Panel>
+              <div className="space-y-4">
+                <Panel>
+                  <PanelTitle icon={<LogIn />}>Organizer sign-in</PanelTitle>
+                  <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                    Future version: staff sign in with an approved Stanford, IEEE, or conference-admin account before accessing imports, overrides, and exports.
+                  </p>
+                  <Button className="mt-4 w-full" variant="outline">
+                    Staff login placeholder
+                  </Button>
+                </Panel>
+
+                <Panel>
+                  <PanelTitle icon={<Link2 />}>Presenter link preview</PanelTitle>
+                  <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                    After registration, the generated token opens the presenter-only side. In the real build, this would be emailed to the scheduling controller.
+                  </p>
+                  <div className="mt-4 rounded-lg border border-border bg-muted/35 p-3 font-mono text-xs">
+                    ?token={activeToken}
+                  </div>
+                  <Button className="mt-4 w-full" variant="outline" onClick={() => choosePortal('presenter')}>
+                    Test presenter registration link
+                  </Button>
+                </Panel>
+              </div>
             </div>
           </TabsContent>
 
@@ -1238,7 +1299,41 @@ export default function Home() {
             <div className="grid gap-5 lg:grid-cols-[360px_minmax(0,1fr)]">
               <aside className="space-y-4">
                 <Panel>
-                  <PanelTitle icon={<Link2 />}>Demo private links</PanelTitle>
+                  <PanelTitle icon={<LogIn />}>Presenter sign-in</PanelTitle>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                    Future version: presenters sign in with their invitation link or verified email before seeing one accepted presentation.
+                  </p>
+                  <div className="mt-4 space-y-2">
+                    <label className="space-y-2">
+                      <span className="text-sm font-medium">Invitation token</span>
+                      <Input
+                        value={tokenEntry}
+                        onChange={(event) => setTokenEntry(event.target.value)}
+                        placeholder="private-token"
+                      />
+                    </label>
+                    <Button
+                      className="w-full"
+                      onClick={() => {
+                        const match = state.presentations.find(
+                          (presentation) => presentation.token === tokenEntry,
+                        );
+                        if (!match) {
+                          setToast('No presentation found for that token in the demo data.');
+                          return;
+                        }
+                        setActiveToken(tokenEntry);
+                        window.history.replaceState(null, '', `?token=${tokenEntry}`);
+                        setToast(`Signed in as presenter for ${match.submissionId}.`);
+                      }}
+                    >
+                      Continue with token
+                    </Button>
+                  </div>
+                </Panel>
+
+                <Panel>
+                  <PanelTitle icon={<Link2 />}>Demo invitation links</PanelTitle>
                   <div className="space-y-2">
                     {state.presentations.map((presentation) => {
                       const presenter = findPresenter(state, presentation.controllerId);
@@ -1252,6 +1347,7 @@ export default function Home() {
                           }`}
                           onClick={() => {
                             setActiveToken(presentation.token);
+                            setTokenEntry(presentation.token);
                             window.history.replaceState(null, '', `?token=${presentation.token}`);
                           }}
                         >
