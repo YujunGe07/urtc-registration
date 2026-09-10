@@ -140,7 +140,7 @@ const seedState: SchedulerState = {
       id: 'p-sofia',
       name: 'Sofia Chen',
       email: 'sofia.chen@example.edu',
-      institution: 'Stanford University',
+      institution: 'Host University',
       timezone: 'America/Los_Angeles',
     },
     {
@@ -778,7 +778,7 @@ function Hero({
       <nav className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm font-semibold">
           <ShieldCheck className="size-5 text-primary" />
-          Stanford URTC Scheduler
+          URTC Scheduling Portal
         </div>
         <Badge variant="outline">May 14-16, 2027</Badge>
       </nav>
@@ -786,7 +786,7 @@ function Hero({
         <div>
           <Badge className="bg-primary text-primary-foreground">Conference scheduling portal</Badge>
           <h1 className="mt-5 max-w-4xl text-5xl font-semibold leading-[1.02] tracking-tight sm:text-6xl">
-            One front door. Two completely separate workspaces.
+            URTC scheduling portal
           </h1>
           <p className="mt-5 max-w-2xl text-base leading-7 text-muted-foreground">
             Accepted presenters use their unique key to verify auto-filled submission details and book an exact presentation period inside their track block. Organizers manage accepted submissions, generated keys, blocks, capacities, and exports in a separate workspace.
@@ -819,7 +819,6 @@ function Hero({
           <div className="flex items-center justify-between border-b border-border pb-4">
             <div>
               <p className="text-sm font-semibold">Sequence map</p>
-              <p className="text-xs text-muted-foreground">The intended UX, end to end</p>
             </div>
             <Sparkles className="size-5 text-primary" />
           </div>
@@ -878,7 +877,7 @@ function WorkspaceShell({
             <p className="mt-1 text-sm text-muted-foreground">
               {role === 'presenter'
                 ? 'Future sign-in: unique key, email verification, or presenter account.'
-                : 'Future sign-in: Stanford, IEEE, or approved conference-admin account.'}
+                : 'Future sign-in: IEEE or approved conference-admin account.'}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -1023,7 +1022,7 @@ function PresenterWorkspace(props: {
                 <label className="space-y-1">
                   <span className="text-xs font-medium text-muted-foreground">Time zone</span>
                   <Input value={props.activePresenter.timezone} onChange={(event) => props.updatePresenter('timezone', event.target.value)} />
-                  <p className="text-xs leading-5 text-muted-foreground">Used to make scheduling times clear for presenters traveling to Stanford.</p>
+                  <p className="text-xs leading-5 text-muted-foreground">Used to make scheduling times clear for presenters traveling to the conference.</p>
                 </label>
                 <Button className="w-full" onClick={() => props.setStep('book')}>
                   Details are correct
@@ -1206,7 +1205,7 @@ function OrganizerWorkspace(props: {
         <Panel>
           <PanelTitle icon={<LockKeyhole />}>Staff sign-in</PanelTitle>
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            Placeholder for Stanford, IEEE, or conference-admin login.
+            Placeholder for IEEE or conference-admin login.
           </p>
           <Button className="mt-4 w-full" variant="outline">
             Future staff login

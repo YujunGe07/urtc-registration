@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Stanford URTC Scheduler',
+  title: 'URTC Scheduling Portal',
   description:
-    'Presenter self-scheduling prototype for Stanford URTC 2027 accepted presentations.',
+    'Presenter self-scheduling prototype for URTC 2027 accepted presentations.',
 };
 
 export default function RootLayout({
