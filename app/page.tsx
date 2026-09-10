@@ -10,7 +10,6 @@ import {
   KeyRound,
   Layers3,
   LayoutDashboard,
-  Link2,
   LockKeyhole,
   Mail,
   Search,
@@ -46,8 +45,6 @@ type Presenter = {
   email: string;
   institution: string;
   timezone: string;
-  arrival: string;
-  departure: string;
 };
 
 type Submission = {
@@ -76,6 +73,7 @@ type Block = {
   end: string;
   room: string;
   capacityPerPeriod: number;
+  presentationMinutes: number;
   chair: string;
   locked?: boolean;
 };
@@ -128,8 +126,6 @@ const seedState: SchedulerState = {
       email: 'maya.patel@example.edu',
       institution: 'UC Berkeley',
       timezone: 'America/Los_Angeles',
-      arrival: 'Saturday morning',
-      departure: 'Sunday afternoon',
     },
     {
       id: 'p-daniel',
@@ -137,8 +133,6 @@ const seedState: SchedulerState = {
       email: 'daniel.kim@example.edu',
       institution: 'University of Washington',
       timezone: 'America/Los_Angeles',
-      arrival: 'Saturday morning',
-      departure: 'Sunday noon',
     },
     {
       id: 'p-sofia',
@@ -146,8 +140,6 @@ const seedState: SchedulerState = {
       email: 'sofia.chen@example.edu',
       institution: 'Stanford University',
       timezone: 'America/Los_Angeles',
-      arrival: 'Friday afternoon',
-      departure: 'Sunday afternoon',
     },
     {
       id: 'p-andre',
@@ -155,8 +147,6 @@ const seedState: SchedulerState = {
       email: 'andre.williams@example.edu',
       institution: 'Harvey Mudd College',
       timezone: 'America/Los_Angeles',
-      arrival: 'Friday evening',
-      departure: 'Sunday morning',
     },
   ],
   submissions: [
@@ -232,6 +222,7 @@ const seedState: SchedulerState = {
       end: '10:48',
       room: 'Packard 101',
       capacityPerPeriod: 1,
+      presentationMinutes: 8,
       chair: 'Gim Soon Wan',
     },
     {
@@ -244,6 +235,7 @@ const seedState: SchedulerState = {
       end: '10:48',
       room: 'Packard 202',
       capacityPerPeriod: 1,
+      presentationMinutes: 8,
       chair: 'Session chair TBD',
     },
     {
@@ -256,6 +248,7 @@ const seedState: SchedulerState = {
       end: '10:34',
       room: 'Packard Atrium',
       capacityPerPeriod: 4,
+      presentationMinutes: 8,
       chair: 'Poster lead TBD',
     },
     {
@@ -268,6 +261,7 @@ const seedState: SchedulerState = {
       end: '11:48',
       room: 'Packard 101',
       capacityPerPeriod: 1,
+      presentationMinutes: 8,
       chair: 'Lightning chair TBD',
     },
     {
@@ -280,6 +274,7 @@ const seedState: SchedulerState = {
       end: '12:48',
       room: 'Packard 202',
       capacityPerPeriod: 1,
+      presentationMinutes: 8,
       chair: 'Workshop chair TBD',
     },
     {
@@ -292,6 +287,7 @@ const seedState: SchedulerState = {
       end: '11:48',
       room: 'Packard 101',
       capacityPerPeriod: 1,
+      presentationMinutes: 8,
       chair: 'Robotics chair TBD',
     },
   ],
@@ -315,7 +311,7 @@ const blankDraft: Draft = {
   avNeeds: '',
 };
 
-const storageKey = 'stanford-urtc-redesigned-scheduler';
+const storageKey = 'stanford-urtc-polished-scheduler-v2';
 
 function toMinutes(time: string) {
   const [hour, minute] = time.split(':').map(Number);
@@ -337,12 +333,13 @@ function formatDate(date: string) {
 
 function makePeriods(block: Block) {
   const periods = [];
-  for (let start = toMinutes(block.start); start + 8 <= toMinutes(block.end); start += 8) {
+  const length = block.presentationMinutes || 8;
+  for (let start = toMinutes(block.start); start + length <= toMinutes(block.end); start += length) {
     periods.push({
       id: `${block.id}__${toTime(start).replace(':', '-')}`,
       blockId: block.id,
       start: toTime(start),
-      end: toTime(start + 8),
+      end: toTime(start + length),
     });
   }
   return periods;
@@ -442,6 +439,8 @@ export default function Home() {
   const [message, setMessage] = useState('Choose a workspace to begin.');
   const [draft, setDraft] = useState<Draft>(blankDraft);
   const [search, setSearch] = useState('');
+  const [selectedBlockId, setSelectedBlockId] = useState(seedState.blocks[0].id);
+  const [helpNote, setHelpNote] = useState('');
 
   useEffect(() => {
     const saved = window.localStorage.getItem(storageKey);
@@ -542,11 +541,15 @@ export default function Home() {
           : submission,
       ),
       log: [
-        log(activePresenter.name, `${activeSubmission.key} reported no workable 8-minute period.`),
+        log(
+          activePresenter.name,
+          `${activeSubmission.key} reported no workable period.${helpNote ? ` Note: ${helpNote}` : ''}`,
+        ),
         ...current.log,
       ],
     }));
-    setMessage('Organizers will follow up about your availability.');
+    setHelpNote('');
+    setMessage('Request sent. An organizer will email you with alternate scheduling options.');
   }
 
   function book(periodId: string) {
@@ -555,7 +558,7 @@ export default function Home() {
     if (!block) return;
     const occupied = countAssigned(state, periodId, activeSubmission.id);
     if (occupied >= block.capacityPerPeriod) {
-      setMessage('That 8-minute period was just filled. Please choose another one.');
+      setMessage('That start time was just filled. Please choose another one.');
       return;
     }
     if (activeSubmission.locked || block.locked) {
@@ -610,8 +613,6 @@ export default function Home() {
           email: draft.email,
           institution: draft.institution,
           timezone: 'America/Los_Angeles',
-          arrival: 'Not provided',
-          departure: 'Not provided',
         },
       ],
       submissions: [...current.submissions, submission],
@@ -620,6 +621,32 @@ export default function Home() {
     setDraft(blankDraft);
     setKeyInput(key);
     setMessage(`New unique key generated: ${key}`);
+  }
+
+  function updateBlock(blockId: string, patch: Partial<Block>) {
+    setState((current) => ({
+      ...current,
+      blocks: current.blocks.map((block) =>
+        block.id === blockId ? { ...block, ...patch } : block,
+      ),
+      log: [log('Organizer', 'Track block settings updated.'), ...current.log],
+    }));
+  }
+
+  function moveBlock(blockId: string, direction: -1 | 1) {
+    setState((current) => {
+      const index = current.blocks.findIndex((block) => block.id === blockId);
+      const nextIndex = index + direction;
+      if (index < 0 || nextIndex < 0 || nextIndex >= current.blocks.length) return current;
+      const blocks = [...current.blocks];
+      const [item] = blocks.splice(index, 1);
+      blocks.splice(nextIndex, 0, item);
+      return {
+        ...current,
+        blocks,
+        log: [log('Organizer', `${item.title} moved in the block order.`), ...current.log],
+      };
+    });
   }
 
   return (
@@ -654,6 +681,8 @@ export default function Home() {
               setStep={setStep}
               book={book}
               requestHelp={requestHelp}
+              helpNote={helpNote}
+              setHelpNote={setHelpNote}
             />
           ) : (
             <OrganizerWorkspace
@@ -664,6 +693,10 @@ export default function Home() {
               usedSeats={usedSeats}
               totalSeats={totalSeats}
               periodCount={periodCount}
+              selectedBlockId={selectedBlockId}
+              setSelectedBlockId={setSelectedBlockId}
+              updateBlock={updateBlock}
+              moveBlock={moveBlock}
               draft={draft}
               setDraft={setDraft}
               registerSubmission={registerSubmission}
@@ -702,7 +735,7 @@ function Hero({
             One front door. Two completely separate workspaces.
           </h1>
           <p className="mt-5 max-w-2xl text-base leading-7 text-muted-foreground">
-            Accepted presenters use their unique key to verify auto-filled submission details and book an exact 8-minute period inside their track block. Organizers manage accepted submissions, generated keys, blocks, capacities, and exports in a separate workspace.
+            Accepted presenters use their unique key to verify auto-filled submission details and book an exact presentation period inside their track block. Organizers manage accepted submissions, generated keys, blocks, capacities, and exports in a separate workspace.
           </p>
           <div className="mt-8 grid gap-3 sm:grid-cols-2">
             <button
@@ -712,7 +745,7 @@ function Hero({
               <UserPlus className="size-6" />
               <p className="mt-4 text-lg font-semibold">I am a presenter</p>
               <p className="mt-2 text-sm leading-6 text-primary-foreground/80">
-                Sign in with a unique key, verify your paper/poster/talk details, then choose a specific 8-minute period.
+                Sign in with a unique key, verify your paper/poster/talk details, then choose a specific available start time.
               </p>
             </button>
             <button
@@ -741,7 +774,7 @@ function Hero({
               ['1', 'Choose role', 'Presenter and organizer paths split immediately.'],
               ['2', 'Future sign-in', 'Each role gets its own authentication gate.'],
               ['3', 'Verify data', 'Presenter sees auto-filled accepted-submission stats.'],
-              ['4', 'Book exact period', 'Only matching track blocks and available 8-minute periods appear.'],
+              ['4', 'Book exact period', 'Only matching track blocks and available start times appear.'],
             ].map(([number, title, text]) => (
               <div key={number} className="grid grid-cols-[36px_1fr] gap-3">
                 <div className="flex size-9 items-center justify-center rounded-lg bg-muted text-sm font-semibold">
@@ -824,6 +857,8 @@ function PresenterWorkspace(props: {
   setStep: (step: PresenterStep) => void;
   book: (periodId: string) => void;
   requestHelp: () => void;
+  helpNote: string;
+  setHelpNote: (value: string) => void;
 }) {
   const steps: [PresenterStep, string][] = [
     ['key', 'Sign in'],
@@ -915,12 +950,23 @@ function PresenterWorkspace(props: {
                 </div>
               </div>
               <div className="space-y-3 rounded-lg border border-border bg-background p-4">
-                <p className="text-sm font-semibold">Presenter details</p>
-                <Input value={props.activePresenter.name} onChange={(event) => props.updatePresenter('name', event.target.value)} />
-                <Input value={props.activePresenter.email} onChange={(event) => props.updatePresenter('email', event.target.value)} />
-                <Input value={props.activePresenter.institution} onChange={(event) => props.updatePresenter('institution', event.target.value)} />
-                <Input value={props.activePresenter.arrival} onChange={(event) => props.updatePresenter('arrival', event.target.value)} />
-                <Input value={props.activePresenter.departure} onChange={(event) => props.updatePresenter('departure', event.target.value)} />
+                <p className="text-sm font-semibold">Presenter contact</p>
+                <label className="space-y-1">
+                  <span className="text-xs font-medium text-muted-foreground">Name</span>
+                  <Input value={props.activePresenter.name} onChange={(event) => props.updatePresenter('name', event.target.value)} />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-xs font-medium text-muted-foreground">Email</span>
+                  <Input value={props.activePresenter.email} onChange={(event) => props.updatePresenter('email', event.target.value)} />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-xs font-medium text-muted-foreground">Institution</span>
+                  <Input value={props.activePresenter.institution} onChange={(event) => props.updatePresenter('institution', event.target.value)} />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-xs font-medium text-muted-foreground">Time zone</span>
+                  <Input value={props.activePresenter.timezone} onChange={(event) => props.updatePresenter('timezone', event.target.value)} />
+                </label>
                 <Button className="w-full" onClick={() => props.setStep('book')}>
                   Details are correct
                 </Button>
@@ -933,14 +979,11 @@ function PresenterWorkspace(props: {
           <Panel>
             <div className="flex flex-col justify-between gap-3 border-b border-border pb-4 lg:flex-row lg:items-end">
               <div>
-                <PanelTitle icon={<CalendarDays />}>Choose an available 8-minute period</PanelTitle>
+                <PanelTitle icon={<CalendarDays />}>Choose a bookable presentation period</PanelTitle>
                 <p className="mt-1 text-sm text-muted-foreground">
                   Only blocks matching {props.activeSubmission.track} and {props.activeSubmission.type} are shown.
                 </p>
               </div>
-              <Button variant="outline" onClick={props.requestHelp}>
-                None of these work
-              </Button>
             </div>
             <div className="mt-5 space-y-4">
               {props.eligibleBlocks.length === 0 ? (
@@ -957,6 +1000,34 @@ function PresenterWorkspace(props: {
                 ))
               )}
             </div>
+            <section
+              aria-labelledby="availability-help"
+              className="mt-5 rounded-lg border-2 border-amber-300 bg-amber-50 p-5 text-amber-950 shadow-sm"
+            >
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
+                <div>
+                  <h3 id="availability-help" className="flex items-center gap-2 text-lg font-semibold">
+                    <Mail className="size-5" />
+                    Need a different time?
+                  </h3>
+                  <p className="mt-2 text-sm leading-6">
+                    If none of the available periods work, send an availability note to the organizers. This removes any current booking and marks your submission for follow-up.
+                  </p>
+                  <Textarea
+                    className="mt-4 border-amber-300 bg-white text-foreground"
+                    value={props.helpNote}
+                    onChange={(event) => props.setHelpNote(event.target.value)}
+                    placeholder="Example: I can only present after 11:30 AM on Sunday."
+                    aria-label="Availability note for organizers"
+                  />
+                </div>
+                <div className="flex items-end">
+                  <Button className="h-12 w-full bg-amber-600 text-white hover:bg-amber-700" onClick={props.requestHelp}>
+                    Request organizer follow-up
+                  </Button>
+                </div>
+              </div>
+            </section>
           </Panel>
         ) : null}
 
@@ -1005,7 +1076,7 @@ function TrackBlock({
           </p>
         </div>
         <div className="text-sm text-muted-foreground">
-          {periods.length} periods, {block.capacityPerPeriod} seat each
+          {periods.length} start times, {block.presentationMinutes} min each
         </div>
       </div>
       <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
@@ -1029,7 +1100,7 @@ function TrackBlock({
               <p className="text-sm font-semibold">{period.start}</p>
               <p className="mt-1 text-xs">{period.end} PT</p>
               <p className="mt-2 text-xs">
-                {selected ? 'Selected' : full ? 'Full' : `${block.capacityPerPeriod - used} open`}
+                {selected ? 'Selected' : full ? 'Full' : `${block.capacityPerPeriod - used} spot${block.capacityPerPeriod - used === 1 ? '' : 's'} open`}
               </p>
             </button>
           );
@@ -1047,6 +1118,10 @@ function OrganizerWorkspace(props: {
   usedSeats: number;
   totalSeats: number;
   periodCount: number;
+  selectedBlockId: string;
+  setSelectedBlockId: (id: string) => void;
+  updateBlock: (blockId: string, patch: Partial<Block>) => void;
+  moveBlock: (blockId: string, direction: -1 | 1) => void;
   draft: Draft;
   setDraft: (draft: Draft) => void;
   registerSubmission: () => void;
@@ -1061,6 +1136,9 @@ function OrganizerWorkspace(props: {
     ['blocks', 'Track blocks', <Layers3 key="blocks" />],
     ['schedule', 'Schedule', <CalendarDays key="schedule" />],
   ];
+  const selectedBlock =
+    props.state.blocks.find((block) => block.id === props.selectedBlockId) ??
+    props.state.blocks[0];
 
   return (
     <div className="grid gap-5 lg:grid-cols-[240px_minmax(0,1fr)]">
@@ -1094,17 +1172,17 @@ function OrganizerWorkspace(props: {
         {props.view === 'overview' ? (
           <>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <Metric label="Accepted submissions" value={String(props.state.submissions.length)} icon={<FileText />} />
-              <Metric label="Scheduled" value={`${props.scheduledCount}/${props.state.submissions.length}`} icon={<CheckCircle2 />} />
-              <Metric label="8-min periods" value={String(props.periodCount)} icon={<Clock3 />} />
-              <Metric label="Seats used" value={`${props.usedSeats}/${props.totalSeats}`} icon={<Users />} />
+              <Metric label="Accepted submissions" value={String(props.state.submissions.length)} icon={<FileText />} help="Papers, posters, talks, and workshops loaded into the system." />
+              <Metric label="Booked submissions" value={`${props.scheduledCount}/${props.state.submissions.length}`} icon={<CheckCircle2 />} help="Accepted submissions with a confirmed presentation period." />
+              <Metric label="Bookable start times" value={String(props.periodCount)} icon={<Clock3 />} help="Start times generated from all current track blocks." />
+              <Metric label="Open booking spots" value={String(Math.max(0, props.totalSeats - props.usedSeats))} icon={<Users />} help="Remaining presenter spots across all generated periods." />
             </div>
             <Panel>
               <PanelTitle icon={<Sparkles />}>What organizers control</PanelTitle>
               <div className="mt-4 grid gap-3 md:grid-cols-3">
                 <Info title="Accepted data" text="Import or register accepted papers, posters, and lightning talks before presenters sign in." />
                 <Info title="Track blocks" text="Each track owns one or more blocks. Presenters only see blocks matching their track and type." />
-                <Info title="8-minute periods" text="Blocks automatically generate bookable 8-minute periods with capacity rules." />
+                <Info title="Presentation periods" text="Each block generates bookable start times from its presentation length, usually 8 minutes." />
               </div>
             </Panel>
           </>
@@ -1143,25 +1221,124 @@ function OrganizerWorkspace(props: {
 
         {props.view === 'blocks' ? (
           <Panel>
-            <PanelTitle icon={<Layers3 />}>Track-specific booking blocks</PanelTitle>
-            <div className="mt-4 grid gap-3">
-              {props.state.blocks.map((block) => (
-                <div key={block.id} className="rounded-lg border border-border bg-background p-4">
-                  <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                    <div>
-                      <p className="font-semibold">{block.title}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {formatDate(block.date)}, {block.start}-{block.end} - {block.room}
-                      </p>
+            <div className="flex flex-col justify-between gap-3 border-b border-border pb-4 lg:flex-row lg:items-center">
+              <div>
+                <PanelTitle icon={<Layers3 />}>Track block editor</PanelTitle>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Change the order and rules that generate presenter booking periods.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => props.moveBlock(selectedBlock.id, -1)}>
+                  Move up
+                </Button>
+                <Button variant="outline" onClick={() => props.moveBlock(selectedBlock.id, 1)}>
+                  Move down
+                </Button>
+              </div>
+            </div>
+            <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
+              <div className="space-y-3">
+                {props.state.blocks.map((block) => (
+                  <button
+                    key={block.id}
+                    onClick={() => props.setSelectedBlockId(block.id)}
+                    className={`w-full rounded-lg border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md ${
+                      selectedBlock.id === block.id
+                        ? 'border-primary bg-primary text-primary-foreground'
+                        : 'border-border bg-background'
+                    }`}
+                  >
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                      <div>
+                        <p className="font-semibold">{block.title}</p>
+                        <p className={`text-sm ${selectedBlock.id === block.id ? 'text-primary-foreground/75' : 'text-muted-foreground'}`}>
+                          {formatDate(block.date)}, {block.start}-{block.end} - {block.room}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant={selectedBlock.id === block.id ? 'secondary' : 'default'}>{block.track}</Badge>
+                        <Badge variant="outline">{block.type}</Badge>
+                        <Badge variant="secondary">{makePeriods(block).length} start times</Badge>
+                      </div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Badge>{block.track}</Badge>
-                      <Badge variant="outline">{block.type}</Badge>
-                      <Badge variant="secondary">{makePeriods(block).length} periods</Badge>
-                    </div>
+                  </button>
+                ))}
+              </div>
+
+              <div className="rounded-lg border border-border bg-background p-4">
+                <p className="text-sm font-semibold">Edit selected block</p>
+                <div className="mt-4 space-y-3">
+                  <label className="space-y-1">
+                    <span className="text-xs font-medium text-muted-foreground">Block title</span>
+                    <Input value={selectedBlock.title} onChange={(event) => props.updateBlock(selectedBlock.id, { title: event.target.value })} />
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="space-y-1">
+                      <span className="text-xs font-medium text-muted-foreground">Track</span>
+                      <NativeSelect value={selectedBlock.track} onChange={(event) => props.updateBlock(selectedBlock.id, { track: event.target.value as Track })}>
+                        {tracks.map((track) => <option key={track}>{track}</option>)}
+                      </NativeSelect>
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-xs font-medium text-muted-foreground">Type</span>
+                      <NativeSelect value={selectedBlock.type} onChange={(event) => props.updateBlock(selectedBlock.id, { type: event.target.value as PresentationType })}>
+                        {Object.keys(typeDurations).map((type) => <option key={type}>{type}</option>)}
+                      </NativeSelect>
+                    </label>
                   </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <label className="space-y-1">
+                      <span className="text-xs font-medium text-muted-foreground">Date</span>
+                      <NativeSelect value={selectedBlock.date} onChange={(event) => props.updateBlock(selectedBlock.id, { date: event.target.value as Block['date'] })}>
+                        <option value="2027-05-15">Saturday</option>
+                        <option value="2027-05-16">Sunday</option>
+                      </NativeSelect>
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-xs font-medium text-muted-foreground">Start</span>
+                      <Input type="time" value={selectedBlock.start} onChange={(event) => props.updateBlock(selectedBlock.id, { start: event.target.value })} />
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-xs font-medium text-muted-foreground">End</span>
+                      <Input type="time" value={selectedBlock.end} onChange={(event) => props.updateBlock(selectedBlock.id, { end: event.target.value })} />
+                    </label>
+                  </div>
+                  <label className="space-y-1">
+                    <span className="text-xs font-medium text-muted-foreground">Location</span>
+                    <Input value={selectedBlock.room} onChange={(event) => props.updateBlock(selectedBlock.id, { room: event.target.value })} />
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="space-y-1">
+                      <span className="text-xs font-medium text-muted-foreground">Presentation length</span>
+                      <Input
+                        type="number"
+                        min={4}
+                        max={60}
+                        value={selectedBlock.presentationMinutes}
+                        onChange={(event) => props.updateBlock(selectedBlock.id, { presentationMinutes: Number(event.target.value) || 8 })}
+                      />
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-xs font-medium text-muted-foreground">Spots per start</span>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={12}
+                        value={selectedBlock.capacityPerPeriod}
+                        onChange={(event) => props.updateBlock(selectedBlock.id, { capacityPerPeriod: Number(event.target.value) || 1 })}
+                      />
+                    </label>
+                  </div>
+                  <label className="space-y-1">
+                    <span className="text-xs font-medium text-muted-foreground">Session chair</span>
+                    <Input value={selectedBlock.chair} onChange={(event) => props.updateBlock(selectedBlock.id, { chair: event.target.value })} />
+                  </label>
                 </div>
-              ))}
+                <div className="mt-4 rounded-lg bg-muted p-3 text-sm text-muted-foreground">
+                  This block currently creates {makePeriods(selectedBlock).length} bookable start times.
+                </div>
+              </div>
             </div>
           </Panel>
         ) : null}
@@ -1228,7 +1405,7 @@ function Panel({
   className?: string;
 }) {
   return (
-    <section className={`rounded-lg border border-border bg-card p-4 shadow-sm sm:p-5 ${className}`}>
+    <section className={`rounded-lg border border-white/70 bg-card/90 p-4 shadow-[0_24px_70px_rgb(15_23_42/10%)] backdrop-blur sm:p-5 ${className}`}>
       {children}
     </section>
   );
@@ -1252,14 +1429,25 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Metric({ label, value, icon }: { label: string; value: string; icon: React.ReactNode }) {
+function Metric({
+  label,
+  value,
+  icon,
+  help,
+}: {
+  label: string;
+  value: string;
+  icon: React.ReactNode;
+  help?: string;
+}) {
   return (
-    <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
+    <div className="rounded-lg border border-border bg-card p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">{label}</p>
         <span className="[&_svg]:size-4 [&_svg]:text-primary">{icon}</span>
       </div>
       <p className="mt-2 text-2xl font-semibold">{value}</p>
+      {help ? <p className="mt-2 text-xs leading-5 text-muted-foreground">{help}</p> : null}
     </div>
   );
 }
