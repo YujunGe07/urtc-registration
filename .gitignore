@@ -36,3 +36,10 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+
+/.sites-runtime/
+/.dev.vars
+/app/page 2.tsx
+!.env.example
+
+*.tsbuildinfo

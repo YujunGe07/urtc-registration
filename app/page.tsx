@@ -1,1551 +1,2454 @@
 'use client';
+// Auth endpoints are owned by Sites and must use top-level anchor navigation.
+/* oxlint-disable next/no-html-link-for-pages */
+// React Compiler is not enabled; this rule reports an invariant for async handlers.
+/* oxlint-disable react/react-compiler */
 
 import {
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type SubmitEvent,
+} from 'react';
+import {
   ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  ArrowDown,
   CalendarDays,
+  Check,
   CheckCircle2,
+  ChevronRight,
   Clock3,
+  Copy,
   Download,
   FileText,
   KeyRound,
   Layers3,
   LayoutDashboard,
+  Loader2,
   LockKeyhole,
-  Mail,
+  LogOut,
+  MapPin,
+  Pencil,
   Plus,
   Search,
   ShieldCheck,
-  Sparkles,
   Trash2,
-  UserCog,
-  UserPlus,
   Users,
+  X,
+  AlertCircle,
+  RefreshCw,
+  GraduationCap,
+  LifeBuoy,
+  Unlock,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
-
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { NativeSelect } from '@/components/ui/native-select';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  type Block,
+  type Submission,
+  type PortalData,
+  type Presenter,
+  tracks,
+  typeDurations,
+  makePeriods,
+  formatDate,
+  periodLabel,
+  presenterFor,
+  emptyState,
+} from '@/lib/scheduler';
 
 type Role = 'home' | 'presenter' | 'organizer';
-type PresenterStep = 'key' | 'review' | 'book' | 'done';
-type OrganizerView = 'overview' | 'intake' | 'blocks' | 'schedule';
-type PresentationType = 'Paper' | 'Poster' | 'Lightning talk' | 'Workshop';
-type Track =
-  | 'AI and Systems'
-  | 'Bioengineering'
-  | 'Circuits and Devices'
-  | 'Climate and Energy'
-  | 'Human-Centered Computing'
-  | 'Robotics';
-
-type Presenter = {
-  id: string;
-  name: string;
-  email: string;
-  institution: string;
-  timezone: string;
-};
-
-type Submission = {
-  id: string;
-  key: string;
-  title: string;
-  type: PresentationType;
-  track: Track;
-  durationMinutes: number;
-  presenterId: string;
-  coauthors: string;
-  abstract: string;
-  avNeeds: string;
-  status: 'unscheduled' | 'scheduled' | 'needs help';
-  assignedPeriodId: string | null;
-  locked: boolean;
-};
-
-type Block = {
-  id: string;
-  title: string;
-  track: Track;
-  type: PresentationType;
-  date: '2027-05-15' | '2027-05-16';
-  start: string;
-  end: string;
-  room: string;
-  capacityPerPeriod: number;
-  presentationMinutes: number;
-  chair: string;
-  locked?: boolean;
-};
-
-type EventLog = {
-  id: string;
-  time: string;
-  actor: string;
-  message: string;
-};
-
-type SchedulerState = {
-  presenters: Presenter[];
-  submissions: Submission[];
-  blocks: Block[];
-  log: EventLog[];
-};
-
-type Draft = {
-  title: string;
-  name: string;
-  email: string;
-  institution: string;
-  type: PresentationType;
-  track: Track;
-  avNeeds: string;
-};
-
-const tracks: Track[] = [
-  'AI and Systems',
-  'Bioengineering',
-  'Circuits and Devices',
-  'Climate and Energy',
-  'Human-Centered Computing',
-  'Robotics',
-];
-
-const typeDurations: Record<PresentationType, number> = {
-  Paper: 8,
-  Poster: 8,
-  'Lightning talk': 8,
-  Workshop: 24,
-};
-
-const seedState: SchedulerState = {
-  presenters: [
-    {
-      id: 'p-maya',
-      name: 'Maya Patel',
-      email: 'maya.patel@example.edu',
-      institution: 'UC Berkeley',
-      timezone: 'America/Los_Angeles',
-    },
-    {
-      id: 'p-daniel',
-      name: 'Daniel Kim',
-      email: 'daniel.kim@example.edu',
-      institution: 'University of Washington',
-      timezone: 'America/Los_Angeles',
-    },
-    {
-      id: 'p-sofia',
-      name: 'Sofia Chen',
-      email: 'sofia.chen@example.edu',
-      institution: 'Host University',
-      timezone: 'America/Los_Angeles',
-    },
-    {
-      id: 'p-andre',
-      name: 'Andre Williams',
-      email: 'andre.williams@example.edu',
-      institution: 'Harvey Mudd College',
-      timezone: 'America/Los_Angeles',
-    },
-  ],
-  submissions: [
-    {
-      id: 's-201',
-      key: 'URTC-AI-201',
-      title: 'Edge Scheduling for Low-Power Vision Models',
-      type: 'Paper',
-      track: 'AI and Systems',
-      durationMinutes: 8,
-      presenterId: 'p-maya',
-      coauthors: 'A. Singh, L. Torres',
-      abstract: 'A compact scheduler for running vision models on energy-constrained edge devices.',
-      avNeeds: 'Projector, HDMI',
-      status: 'unscheduled',
-      assignedPeriodId: null,
-      locked: false,
-    },
-    {
-      id: 's-214',
-      key: 'URTC-BIO-214',
-      title: 'Adaptive Microfluidics for Rapid Cell Sorting',
-      type: 'Paper',
-      track: 'Bioengineering',
-      durationMinutes: 8,
-      presenterId: 'p-daniel',
-      coauthors: 'J. Lee',
-      abstract: 'A low-cost microfluidic control approach for undergraduate wet-lab platforms.',
-      avNeeds: 'Audio for short clip',
-      status: 'scheduled',
-      assignedPeriodId: 'b-bio-paper__10-16',
-      locked: false,
-    },
-    {
-      id: 's-226',
-      key: 'URTC-CIRC-226',
-      title: 'Thermal-Aware Routing in Student-Built Satellites',
-      type: 'Poster',
-      track: 'Circuits and Devices',
-      durationMinutes: 8,
-      presenterId: 'p-sofia',
-      coauthors: 'M. Ortiz, H. Nguyen',
-      abstract: 'Poster describing routing choices in a small satellite thermal-control stack.',
-      avNeeds: 'Poster board',
-      status: 'unscheduled',
-      assignedPeriodId: null,
-      locked: false,
-    },
-    {
-      id: 's-230',
-      key: 'URTC-CLIMATE-230',
-      title: 'Community Grid Forecasting After Wildfire Events',
-      type: 'Lightning talk',
-      track: 'Climate and Energy',
-      durationMinutes: 8,
-      presenterId: 'p-andre',
-      coauthors: 'R. Thompson',
-      abstract: 'A short talk on wildfire-aware grid load forecasting for community resilience.',
-      avNeeds: 'One-slide deck',
-      status: 'needs help',
-      assignedPeriodId: null,
-      locked: false,
-    },
-  ],
-  blocks: [
-    {
-      id: 'b-ai-paper',
-      title: 'AI and Systems paper block',
-      track: 'AI and Systems',
-      type: 'Paper',
-      date: '2027-05-15',
-      start: '10:00',
-      end: '10:48',
-      room: 'Packard 101',
-      capacityPerPeriod: 1,
-      presentationMinutes: 8,
-      chair: 'Gim Soon Wan',
-    },
-    {
-      id: 'b-bio-paper',
-      title: 'Bioengineering paper block',
-      track: 'Bioengineering',
-      type: 'Paper',
-      date: '2027-05-15',
-      start: '10:00',
-      end: '10:48',
-      room: 'Packard 202',
-      capacityPerPeriod: 1,
-      presentationMinutes: 8,
-      chair: 'Session chair TBD',
-    },
-    {
-      id: 'b-circuits-poster',
-      title: 'Circuits and Devices poster check-in',
-      track: 'Circuits and Devices',
-      type: 'Poster',
-      date: '2027-05-16',
-      start: '09:30',
-      end: '10:34',
-      room: 'Packard Atrium',
-      capacityPerPeriod: 4,
-      presentationMinutes: 8,
-      chair: 'Poster lead TBD',
-    },
-    {
-      id: 'b-climate-lightning',
-      title: 'Climate and Energy lightning sequence',
-      track: 'Climate and Energy',
-      type: 'Lightning talk',
-      date: '2027-05-16',
-      start: '11:00',
-      end: '11:48',
-      room: 'Packard 101',
-      capacityPerPeriod: 1,
-      presentationMinutes: 8,
-      chair: 'Lightning chair TBD',
-    },
-    {
-      id: 'b-hci-workshop',
-      title: 'Human-Centered Computing workshop demos',
-      track: 'Human-Centered Computing',
-      type: 'Workshop',
-      date: '2027-05-16',
-      start: '12:00',
-      end: '12:48',
-      room: 'Packard 202',
-      capacityPerPeriod: 1,
-      presentationMinutes: 8,
-      chair: 'Workshop chair TBD',
-    },
-    {
-      id: 'b-robotics-paper',
-      title: 'Robotics paper block',
-      track: 'Robotics',
-      type: 'Paper',
-      date: '2027-05-15',
-      start: '11:00',
-      end: '11:48',
-      room: 'Packard 101',
-      capacityPerPeriod: 1,
-      presentationMinutes: 8,
-      chair: 'Robotics chair TBD',
-    },
-  ],
-  log: [
-    {
-      id: 'log-1',
-      time: '2026-09-10T09:00:00.000Z',
-      actor: 'System',
-      message: 'Demo data loaded with four accepted submissions and six track blocks.',
-    },
-  ],
-};
-
-const blankDraft: Draft = {
-  title: '',
-  name: '',
+type View = 'overview' | 'submissions' | 'blocks' | 'schedule';
+const blankData: PortalData = {
+  state: emptyState,
+  revision: 0,
+  organizer: false,
+  signedIn: false,
   email: '',
-  institution: '',
-  type: 'Paper',
-  track: 'AI and Systems',
-  avNeeds: '',
+  submissionId: null,
+  occupancy: {},
 };
-
-const storageKey = 'stanford-urtc-polished-scheduler-v2';
-
-function toMinutes(time: string) {
-  const [hour, minute] = time.split(':').map(Number);
-  return hour * 60 + minute;
+const viewNames: Record<View, string> = {
+  overview: 'Overview',
+  submissions: 'Submissions',
+  blocks: 'Track blocks',
+  schedule: 'Schedule',
+};
+const navItems: [View, typeof LayoutDashboard][] = [
+  ['overview', LayoutDashboard],
+  ['submissions', FileText],
+  ['blocks', Layers3],
+  ['schedule', CalendarDays],
+];
+function timeLabel(time: string) {
+  const [h, m] = time.split(':').map(Number);
+  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
 }
-
-function toTime(total: number) {
-  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
-}
-
-function formatDate(date: string) {
-  return new Intl.DateTimeFormat('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    timeZone: 'America/Los_Angeles',
-  }).format(new Date(`${date}T12:00:00-07:00`));
-}
-
-function makePeriods(block: Block) {
-  const periods = [];
-  const length = block.presentationMinutes || 8;
-  for (let start = toMinutes(block.start); start + length <= toMinutes(block.end); start += length) {
-    periods.push({
-      id: `${block.id}__${toTime(start).replace(':', '-')}`,
-      blockId: block.id,
-      start: toTime(start),
-      end: toTime(start + length),
-    });
-  }
-  return periods;
-}
-
-function presenterFor(state: SchedulerState, submission: Submission | null) {
-  if (!submission) return null;
-  return state.presenters.find((presenter) => presenter.id === submission.presenterId) ?? null;
-}
-
-function blockForPeriod(state: SchedulerState, periodId: string | null) {
-  if (!periodId) return null;
-  const blockId = periodId.split('__')[0];
-  return state.blocks.find((block) => block.id === blockId) ?? null;
-}
-
-function periodLabel(state: SchedulerState, periodId: string | null) {
-  const block = blockForPeriod(state, periodId);
-  if (!block || !periodId) return 'Not booked';
-  const period = makePeriods(block).find((item) => item.id === periodId);
-  if (!period) return 'Not booked';
-  return `${formatDate(block.date)}, ${period.start}-${period.end} PT in ${block.room}`;
-}
-
-function countAssigned(state: SchedulerState, periodId: string, exceptSubmissionId?: string) {
-  return state.submissions.filter(
-    (submission) =>
-      submission.assignedPeriodId === periodId && submission.id !== exceptSubmissionId,
-  ).length;
-}
-
-function keyify(input: string) {
-  return input
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, '-')
-    .replace(/(^-|-$)/g, '')
-    .slice(0, 28);
-}
-
-function log(actor: string, message: string): EventLog {
-  return {
-    id: crypto.randomUUID(),
-    time: new Date().toISOString(),
-    actor,
-    message,
-  };
-}
-
-function exportCsv(state: SchedulerState) {
-  const rows = state.submissions.map((submission) => {
-    const presenter = presenterFor(state, submission);
-    const block = blockForPeriod(state, submission.assignedPeriodId);
-    return {
-      key: submission.key,
-      title: submission.title,
-      presenter: presenter?.name ?? '',
-      email: presenter?.email ?? '',
-      institution: presenter?.institution ?? '',
-      type: submission.type,
-      track: submission.track,
-      status: submission.status,
-      booking: periodLabel(state, submission.assignedPeriodId),
-      room: block?.room ?? '',
-      av: submission.avNeeds,
-    };
-  });
-  const headers = Object.keys(rows[0]);
-  return [
-    headers.join(','),
-    ...rows.map((row) =>
-      headers
-        .map((header) => `"${String(row[header as keyof typeof row]).replaceAll('"', '""')}"`)
-        .join(','),
-    ),
-  ].join('\n');
-}
-
-function download(filename: string, body: string, type = 'text/csv') {
-  const blob = new Blob([body], { type });
-  const url = URL.createObjectURL(blob);
+function saveFile(name: string, body: string, type: string) {
+  const url = URL.createObjectURL(new Blob([body], { type }));
   const a = document.createElement('a');
   a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
+  a.download = name;
   a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function csvCell(value: string | number | undefined | null) {
+  let text = String(value ?? '');
+  if (/^[\s]*[=+@-]/.test(text)) text = "'" + text;
+  return '"' + text.replaceAll('"', '""') + '"';
+}
+function exportSchedule(data: PortalData) {
+  const rows = [
+    [
+      'Submission',
+      'Presenter',
+      'Email',
+      'Institution',
+      'Format',
+      'Track',
+      'Status',
+      'Booking',
+      'AV needs',
+    ],
+    ...data.state.submissions.map((s) => {
+      const p = presenterFor(data.state, s);
+      return [
+        s.title,
+        p?.name,
+        p?.email,
+        p?.institution,
+        s.type,
+        s.track,
+        s.status,
+        periodLabel(data.state, s.assignedPeriodId),
+        s.avNeeds,
+      ];
+    }),
+  ];
+  saveFile(
+    'urtc-2027-schedule.csv',
+    '\uFEFF' + rows.map((r) => r.map(csvCell).join(',')).join('\r\n'),
+    'text/csv;charset=utf-8',
+  );
+}
+function calendarFile(data: PortalData, sub: Submission) {
+  const block = data.state.blocks.find((b) =>
+    makePeriods(b).some((p) => p.id === sub.assignedPeriodId),
+  );
+  const period =
+    block && makePeriods(block).find((p) => p.id === sub.assignedPeriodId);
+  if (!block || !period) return;
+  const esc = (s: string) =>
+    s
+      .replaceAll('\\', '\\\\')
+      .replaceAll('\n', '\\n')
+      .replaceAll(',', '\\,')
+      .replaceAll(';', '\\;');
+  const stamp = (t: string) =>
+    block.date.replaceAll('-', '') + 'T' + t.replace(':', '') + '00';
+  const content = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//URTC//Scheduling Portal//EN',
+    'CALSCALE:GREGORIAN',
+    'BEGIN:VTIMEZONE',
+    'TZID:America/Los_Angeles',
+    'BEGIN:DAYLIGHT',
+    'DTSTART:20070311T020000',
+    'RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2SU',
+    'TZOFFSETFROM:-0800',
+    'TZOFFSETTO:-0700',
+    'END:DAYLIGHT',
+    'BEGIN:STANDARD',
+    'DTSTART:20071104T020000',
+    'RRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=1SU',
+    'TZOFFSETFROM:-0700',
+    'TZOFFSETTO:-0800',
+    'END:STANDARD',
+    'END:VTIMEZONE',
+    'BEGIN:VEVENT',
+    `UID:${sub.id}@urtc-scheduler`,
+    `DTSTAMP:${new Date()
+      .toISOString()
+      .replace(/[-:]/g, '')
+      .replace(/\.\d{3}/, '')}`,
+    `DTSTART;TZID=America/Los_Angeles:${stamp(period.start)}`,
+    `DTEND;TZID=America/Los_Angeles:${stamp(period.end)}`,
+    `SUMMARY:${esc(sub.title)}`,
+    `LOCATION:${esc(block.room)}`,
+    `DESCRIPTION:${esc('URTC 2027 · ' + block.track + ' · ' + block.title)}`,
+    'END:VEVENT',
+    'END:VCALENDAR',
+  ].join('\r\n');
+  saveFile('urtc-presentation.ics', content, 'text/calendar;charset=utf-8');
+}
+async function api(action?: Record<string, unknown>): Promise<PortalData> {
+  const r = await fetch(
+    '/api/portal',
+    action
+      ? {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(action),
+        }
+      : { cache: 'no-store' },
+  );
+  const result = (await r.json()) as PortalData & { error?: string };
+  if (!r.ok)
+    throw new Error(result.error ?? 'Unable to connect. Please try again.');
+  return result;
 }
 
 export default function Home() {
-  const [state, setState] = useState(seedState);
-  const [role, setRole] = useState<Role>('home');
-  const [step, setStep] = useState<PresenterStep>('key');
-  const [organizerView, setOrganizerView] = useState<OrganizerView>('overview');
-  const [keyInput, setKeyInput] = useState('URTC-AI-201');
-  const [activeSubmissionId, setActiveSubmissionId] = useState<string | null>(null);
-  const [message, setMessage] = useState('Choose a workspace to begin.');
-  const [draft, setDraft] = useState<Draft>(blankDraft);
-  const [search, setSearch] = useState('');
-  const [selectedBlockId, setSelectedBlockId] = useState(seedState.blocks[0].id);
-  const [helpNote, setHelpNote] = useState('');
-
+  const [role, setRole] = useState<Role>('home'),
+    [view, setView] = useState<View>('overview');
+  const [data, setData] = useState<PortalData>(blankData),
+    [loading, setLoading] = useState(true),
+    [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(
+      null,
+    ),
+    [loadError, setLoadError] = useState(false);
+  const [keyInput, setKeyInput] = useState(''),
+    [step, setStep] = useState(0);
+  const [search, setSearch] = useState(''),
+    [status, setStatus] = useState('all'),
+    [trackFilter, setTrackFilter] = useState('all');
+  const [modal, setModal] = useState<{
+    type:
+      | 'submission'
+      | 'block'
+      | 'delete-submission'
+      | 'delete-block'
+      | 'cancel'
+      | 'sample';
+    id?: string;
+  } | null>(null);
+  const [formError, setFormError] = useState('');
+  const [selectedSlot, setSelectedSlot] = useState(''),
+    [note, setNote] = useState('');
+  const [calendarDay, setCalendarDay] = useState('all');
+  const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
-    const saved = window.localStorage.getItem(storageKey);
-    if (saved) setState(JSON.parse(saved));
-    const params = new URLSearchParams(window.location.search);
-    const key = params.get('key');
-    if (key) {
-      setKeyInput(key);
-      const match = seedState.submissions.find((submission) => submission.key === key);
-      setActiveSubmissionId(match?.id ?? null);
-      setRole('presenter');
-      setStep(match ? 'review' : 'key');
-    }
-    if (params.get('role') === 'organizer') {
-      setRole('organizer');
-      setOrganizerView('overview');
-    }
+    const sync = () => {
+      const q = new URLSearchParams(window.location.search);
+      setRole(
+        q.get('role') === 'organizer'
+          ? 'organizer'
+          : q.get('role') === 'presenter' || q.has('key')
+            ? 'presenter'
+            : 'home',
+      );
+      const v = q.get('view');
+      setView(v && v in viewNames ? (v as View) : 'overview');
+      if (q.get('key')) {
+        setKeyInput(q.get('key')!);
+        window.history.replaceState(null, '', '?role=presenter');
+      }
+    };
+    sync();
+    window.addEventListener('popstate', sync);
+    void refresh();
+    return () => window.removeEventListener('popstate', sync);
   }, []);
-
   useEffect(() => {
-    window.localStorage.setItem(storageKey, JSON.stringify(state));
-  }, [state]);
-
-  const activeSubmission =
-    state.submissions.find((submission) => submission.id === activeSubmissionId) ?? null;
-  const activePresenter = presenterFor(state, activeSubmission);
-  const activeBlock = blockForPeriod(state, activeSubmission?.assignedPeriodId ?? null);
-  const eligibleBlocks = useMemo(() => {
-    if (!activeSubmission) return [];
-    return state.blocks.filter(
-      (block) => block.track === activeSubmission.track && block.type === activeSubmission.type,
+    heading.current?.focus();
+  }, [role, view, step]);
+  async function refresh() {
+    setLoading(true);
+    try {
+      const next = await api();
+      setData(next);
+      if (next.submissionId) {
+        const own = next.state.submissions.find(
+          (s) => s.id === next.submissionId,
+        );
+        setStep((current) =>
+          current === 0 && own ? (own.assignedPeriodId ? 3 : 1) : current,
+        );
+      }
+      setLoadError(false);
+    } catch (e) {
+      setNotice({ text: (e as Error).message, error: true });
+      setLoadError(true);
+    } finally {
+      setLoading(false);
+    }
+  }
+  function navigate(next: Role, nextView: View = 'overview') {
+    setRole(next);
+    setView(nextView);
+    setSearch('');
+    setStatus('all');
+    setTrackFilter('all');
+    setNotice(null);
+    window.history.pushState(
+      null,
+      '',
+      next === 'home'
+        ? '/'
+        : `?role=${next}${next === 'organizer' ? `&view=${nextView}` : ''}`,
     );
-  }, [activeSubmission, state.blocks]);
-
-  const filteredSubmissions = state.submissions.filter((submission) => {
-    const presenter = presenterFor(state, submission);
-    return `${submission.key} ${submission.title} ${submission.track} ${presenter?.name ?? ''}`
-      .toLowerCase()
-      .includes(search.toLowerCase());
+  }
+  async function act(
+    action: Record<string, unknown>,
+    message: string,
+    close = false,
+  ) {
+    setBusy(true);
+    setFormError('');
+    try {
+      const result = await api({ ...action, revision: data.revision });
+      setData(result);
+      if (action.kind === 'login') {
+        const own = result.state.submissions.find(
+          (s) => s.id === result.submissionId,
+        );
+        setStep(own?.assignedPeriodId ? 3 : 1);
+      }
+      setNotice({ text: message, error: false });
+      if (close) setModal(null);
+      return true;
+    } catch (e) {
+      setFormError((e as Error).message);
+      setNotice({ text: (e as Error).message, error: true });
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function login(e: SubmitEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (
+      await act(
+        { kind: 'login', key: keyInput },
+        'Submission found. Review your details to continue.',
+      )
+    ) {
+      setKeyInput('');
+    }
+  }
+  async function signout() {
+    setBusy(true);
+    try {
+      await api({ kind: 'logout' });
+      setStep(0);
+      setKeyInput('');
+      setSelectedSlot('');
+      await refresh();
+      navigate('home');
+    } catch (e) {
+      setNotice({ text: (e as Error).message, error: true });
+    } finally {
+      setBusy(false);
+    }
+  }
+  const own = data.state.submissions.find((s) => s.id === data.submissionId);
+  const presenter = own ? presenterFor(data.state, own) : null;
+  const booked = data.state.submissions.filter(
+    (s) => s.assignedPeriodId,
+  ).length;
+  const help = data.state.submissions.filter((s) => s.status === 'needs help');
+  const capacity = data.state.blocks
+    .filter((b) => !b.locked)
+    .reduce((sum, b) => sum + makePeriods(b).length * b.capacityPerPeriod, 0);
+  const visible = data.state.submissions.filter((s) => {
+    const p = presenterFor(data.state, s);
+    return (
+      `${s.title} ${s.key} ${p?.name} ${p?.email}`
+        .toLowerCase()
+        .includes(search.toLowerCase()) &&
+      (status === 'all' || s.status === status) &&
+      (trackFilter === 'all' || s.track === trackFilter)
+    );
   });
-
-  const scheduledCount = state.submissions.filter((submission) => submission.status === 'scheduled').length;
-  const periodCount = state.blocks.reduce((sum, block) => sum + makePeriods(block).length, 0);
-  const totalSeats = state.blocks.reduce(
-    (sum, block) => sum + makePeriods(block).length * block.capacityPerPeriod,
-    0,
-  );
-  const usedSeats = state.submissions.filter((submission) => submission.assignedPeriodId).length;
-
-  function navigate(nextRole: Role) {
-    setRole(nextRole);
-    if (nextRole === 'home') {
-      window.history.replaceState(null, '', window.location.pathname);
-      setMessage('Choose a workspace to begin.');
-    }
-    if (nextRole === 'presenter') {
-      window.history.replaceState(null, '', '?role=presenter');
-      setStep('key');
-      setMessage('Enter the unique key from your acceptance email.');
-    }
-    if (nextRole === 'organizer') {
-      window.history.replaceState(null, '', '?role=organizer');
-      setOrganizerView('overview');
-      setMessage('Organizer workspace opened. Sign-in will gate this area later.');
-    }
-  }
-
-  function signInPresenter() {
-    const key = keyInput.trim().toUpperCase();
-    const match = state.submissions.find((submission) => submission.key === key);
-    if (!match) {
-      setMessage('That key does not match a demo accepted submission.');
-      return;
-    }
-    setActiveSubmissionId(match.id);
-    setStep('review');
-    window.history.replaceState(null, '', `?key=${key}`);
-    setMessage('Submission loaded. Check that the auto-filled information is correct.');
-  }
-
-  function updatePresenter(field: keyof Presenter, value: string) {
-    if (!activePresenter) return;
-    setState((current) => ({
-      ...current,
-      presenters: current.presenters.map((presenter) =>
-        presenter.id === activePresenter.id ? { ...presenter, [field]: value } : presenter,
-      ),
-    }));
-  }
-
-  function requestHelp() {
-    if (!activeSubmission || !activePresenter) return;
-    setState((current) => ({
-      ...current,
-      submissions: current.submissions.map((submission) =>
-        submission.id === activeSubmission.id
-          ? { ...submission, status: 'needs help', assignedPeriodId: null }
-          : submission,
-      ),
-      log: [
-        log(
-          activePresenter.name,
-          `${activeSubmission.key} reported no workable period.${helpNote ? ` Note: ${helpNote}` : ''}`,
-        ),
-        ...current.log,
-      ],
-    }));
-    setHelpNote('');
-    setMessage('Request sent. An organizer will email you with alternate scheduling options.');
-  }
-
-  function book(periodId: string) {
-    if (!activeSubmission || !activePresenter) return;
-    const block = blockForPeriod(state, periodId);
-    if (!block) return;
-    const occupied = countAssigned(state, periodId, activeSubmission.id);
-    if (occupied >= block.capacityPerPeriod) {
-      setMessage('That start time was just filled. Please choose another one.');
-      return;
-    }
-    if (activeSubmission.locked || block.locked) {
-      setMessage('This assignment is locked. Please contact organizers.');
-      return;
-    }
-    setState((current) => ({
-      ...current,
-      submissions: current.submissions.map((submission) =>
-        submission.id === activeSubmission.id
-          ? { ...submission, assignedPeriodId: periodId, status: 'scheduled' }
-          : submission,
-      ),
-      log: [
-        log(activePresenter.name, `${activeSubmission.key} booked ${periodLabel(current, periodId)}.`),
-        ...current.log,
-      ],
-    }));
-    setStep('done');
-    setMessage('Booking confirmed.');
-  }
-
-  function registerSubmission() {
-    if (!draft.title || !draft.name || !draft.email) {
-      setMessage('Title, presenter name, and email are required.');
-      return;
-    }
-    const presenterId = crypto.randomUUID();
-    const key = `URTC-${keyify(draft.track.split(' ')[0])}-${Math.floor(100 + Math.random() * 900)}`;
-    const submission: Submission = {
-      id: crypto.randomUUID(),
-      key,
-      title: draft.title,
-      type: draft.type,
-      track: draft.track,
-      durationMinutes: typeDurations[draft.type],
-      presenterId,
-      coauthors: 'To be confirmed by presenter',
-      abstract: 'Imported accepted submission. Presenter will verify details after sign-in.',
-      avNeeds: draft.avNeeds || 'Not specified',
-      status: 'unscheduled',
-      assignedPeriodId: null,
-      locked: false,
-    };
-    setState((current) => ({
-      ...current,
-      presenters: [
-        ...current.presenters,
-        {
-          id: presenterId,
-          name: draft.name,
-          email: draft.email,
-          institution: draft.institution,
-          timezone: 'America/Los_Angeles',
-        },
-      ],
-      submissions: [...current.submissions, submission],
-      log: [log('Organizer', `${key} registered and ready for presenter sign-in.`), ...current.log],
-    }));
-    setDraft(blankDraft);
-    setKeyInput(key);
-    setMessage(`New unique key generated: ${key}`);
-  }
-
-  function updateBlock(blockId: string, patch: Partial<Block>) {
-    setState((current) => ({
-      ...current,
-      blocks: current.blocks.map((block) =>
-        block.id === blockId ? { ...block, ...patch } : block,
-      ),
-      log: [log('Organizer', 'Track block settings updated.'), ...current.log],
-    }));
-  }
-
-  function moveBlock(blockId: string, direction: -1 | 1) {
-    setState((current) => {
-      const index = current.blocks.findIndex((block) => block.id === blockId);
-      const nextIndex = index + direction;
-      if (index < 0 || nextIndex < 0 || nextIndex >= current.blocks.length) return current;
-      const blocks = [...current.blocks];
-      const [item] = blocks.splice(index, 1);
-      blocks.splice(nextIndex, 0, item);
-      return {
-        ...current,
-        blocks,
-        log: [log('Organizer', `${item.title} moved in the block order.`), ...current.log],
-      };
-    });
-  }
-
-  function addBlock() {
-    const id = `b-${crypto.randomUUID()}`;
-    const block: Block = {
-      id,
-      title: 'New editable track block',
-      track: 'AI and Systems',
-      type: 'Paper',
-      date: '2027-05-15',
-      start: '13:00',
-      end: '13:48',
-      room: 'Packard room TBD',
-      capacityPerPeriod: 1,
-      presentationMinutes: 8,
-      chair: 'Session chair TBD',
-    };
-    setState((current) => ({
-      ...current,
-      blocks: [...current.blocks, block],
-      log: [log('Organizer', 'New track block created.'), ...current.log],
-    }));
-    setSelectedBlockId(id);
-    setMessage('New block created. Edit the details in the block editor.');
-  }
-
-  function deleteBlock(blockId: string) {
-    if (state.blocks.length <= 1) {
-      setMessage('At least one booking block is required.');
-      return;
-    }
-    const deleted = state.blocks.find((block) => block.id === blockId);
-    setState((current) => {
-      const remaining = current.blocks.filter((block) => block.id !== blockId);
-      return {
-        ...current,
-        blocks: remaining,
-        submissions: current.submissions.map((submission) =>
-          submission.assignedPeriodId?.startsWith(`${blockId}__`)
-            ? { ...submission, assignedPeriodId: null, status: 'unscheduled' }
-            : submission,
-        ),
-        log: [
-          log('Organizer', `${deleted?.title ?? 'Track block'} deleted; affected bookings cleared.`),
-          ...current.log,
-        ],
-      };
-    });
-    setSelectedBlockId(state.blocks.find((block) => block.id !== blockId)?.id ?? seedState.blocks[0].id);
-    setMessage('Block deleted. Any bookings inside that block were cleared.');
-  }
+  const openModal = (type: NonNullable<typeof modal>['type'], id?: string) => {
+    setFormError('');
+    setModal({ type, id });
+  };
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      {role === 'home' ? (
-        <Hero onPresenter={() => navigate('presenter')} onOrganizer={() => navigate('organizer')} />
-      ) : (
-        <WorkspaceShell
-          role={role}
-          message={message}
-          onHome={() => navigate('home')}
-          onReset={() => {
-            setState(seedState);
-            setActiveSubmissionId(null);
-            setStep('key');
-            setMessage('Demo data reset.');
-          }}
+    <div className={`portal ${role === 'home' ? 'landing' : 'workspace'}`}>
+      <a className="skip-link" href="#main">
+        Skip to content
+      </a>
+      <header className="topbar">
+        <button
+          className="brand"
+          onClick={() => navigate('home')}
+          aria-label="URTC portal home"
         >
-          {role === 'presenter' ? (
-            <PresenterWorkspace
-              step={step}
-              keyInput={keyInput}
-              setKeyInput={setKeyInput}
-              signIn={signInPresenter}
-              submissions={state.submissions}
-              activeSubmission={activeSubmission}
-              activePresenter={activePresenter}
-              activeBlock={activeBlock}
-              eligibleBlocks={eligibleBlocks}
-              state={state}
-              updatePresenter={updatePresenter}
-              setStep={setStep}
-              book={book}
-              requestHelp={requestHelp}
-              helpNote={helpNote}
-              setHelpNote={setHelpNote}
-            />
-          ) : (
-            <OrganizerWorkspace
-              view={organizerView}
-              setView={setOrganizerView}
-              state={state}
-              scheduledCount={scheduledCount}
-              usedSeats={usedSeats}
-              totalSeats={totalSeats}
-              periodCount={periodCount}
-              selectedBlockId={selectedBlockId}
-              setSelectedBlockId={setSelectedBlockId}
-              updateBlock={updateBlock}
-              moveBlock={moveBlock}
-              addBlock={addBlock}
-              deleteBlock={deleteBlock}
-              draft={draft}
-              setDraft={setDraft}
-              registerSubmission={registerSubmission}
-              search={search}
-              setSearch={setSearch}
-              filteredSubmissions={filteredSubmissions}
-              onExport={() => download('stanford-urtc-schedule.csv', exportCsv(state))}
-            />
+          <span className="brand-mark">
+            <Layers3 size={22} />
+          </span>
+          <span>
+            URTC<span className="brand-year">2027</span>
+          </span>
+          <span className="brand-divider" />
+          <span className="brand-caption">Scheduling portal</span>
+        </button>
+        <div className="topbar-right">
+          <span className="event-meta">
+            <CalendarDays size={15} />
+            May 14–16, 2027
+            <span className="meta-divider" />
+            Pacific Time
+          </span>
+          {role !== 'home' && (
+            <button className="home-link" onClick={() => navigate('home')}>
+              <ArrowLeft size={15} /> Portal home
+            </button>
           )}
-        </WorkspaceShell>
-      )}
-    </main>
-  );
-}
-
-function Hero({
-  onPresenter,
-  onOrganizer,
-}: {
-  onPresenter: () => void;
-  onOrganizer: () => void;
-}) {
-  return (
-    <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-4 py-5 sm:px-6 lg:px-8">
-      <nav className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-sm font-semibold">
-          <ShieldCheck className="size-5 text-primary" />
-          URTC Scheduling Portal
-        </div>
-        <Badge variant="outline">May 14-16, 2027</Badge>
-      </nav>
-      <section className="grid flex-1 gap-8 py-10 lg:grid-cols-[minmax(0,1fr)_420px] lg:items-center">
-        <div>
-          <Badge className="bg-primary text-primary-foreground">Conference scheduling portal</Badge>
-          <h1 className="mt-5 max-w-4xl text-5xl font-semibold leading-[1.02] tracking-tight sm:text-6xl">
-            URTC scheduling portal
-          </h1>
-          <p className="mt-5 max-w-2xl text-base leading-7 text-muted-foreground">
-            Accepted presenters use their unique key to verify auto-filled submission details and book an exact presentation period inside their track block. Organizers manage accepted submissions, generated keys, blocks, capacities, and exports in a separate workspace.
-          </p>
-          <div className="mt-8 grid gap-3 sm:grid-cols-2">
-            <button
-              onClick={onPresenter}
-              className="group rounded-lg border border-primary bg-primary p-5 text-left text-primary-foreground shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg"
-            >
-              <UserPlus className="size-6" />
-              <p className="mt-4 text-lg font-semibold">I am a presenter</p>
-              <p className="mt-2 text-sm leading-6 text-primary-foreground/80">
-                Sign in with a unique key, verify your paper/poster/talk details, then choose a specific available start time.
-              </p>
-            </button>
-            <button
-              onClick={onOrganizer}
-              className="group rounded-lg border border-border bg-card p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-primary/60 hover:shadow-lg"
-            >
-              <UserCog className="size-6 text-primary" />
-              <p className="mt-4 text-lg font-semibold">I am an organizer</p>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                Register accepted submissions, control track blocks, monitor bookings, and export the final schedule.
-              </p>
-            </button>
-          </div>
-        </div>
-
-        <div className="rounded-lg border border-border bg-card p-5 shadow-sm">
-          <div className="flex items-center justify-between border-b border-border pb-4">
-            <div>
-              <p className="text-sm font-semibold">Sequence map</p>
-            </div>
-            <Sparkles className="size-5 text-primary" />
-          </div>
-          <div className="mt-5 space-y-4">
-            {[
-              ['1', 'Choose role', 'Presenter and organizer paths split immediately.'],
-              ['2', 'Future sign-in', 'Each role gets its own authentication gate.'],
-              ['3', 'Verify data', 'Presenter sees auto-filled accepted-submission stats.'],
-              ['4', 'Book exact period', 'Only matching track blocks and available start times appear.'],
-            ].map(([number, title, text]) => (
-              <div key={number} className="grid grid-cols-[36px_1fr] gap-3">
-                <div className="flex size-9 items-center justify-center rounded-lg bg-muted text-sm font-semibold">
-                  {number}
-                </div>
-                <div>
-                  <p className="text-sm font-medium">{title}</p>
-                  <p className="text-sm leading-6 text-muted-foreground">{text}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function WorkspaceShell({
-  role,
-  message,
-  onHome,
-  onReset,
-  children,
-}: {
-  role: Exclude<Role, 'home'>;
-  message: string;
-  onHome: () => void;
-  onReset: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <>
-      <header className="border-b border-border bg-card">
-        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
-          <div>
-            <button
-              onClick={onHome}
-              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
-            >
-              <ArrowLeft className="size-4" />
-              Main intro
-            </button>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight">
-              {role === 'presenter' ? 'Presenter workspace' : 'Organizer workspace'}
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {role === 'presenter'
-                ? 'Future sign-in: unique key, email verification, or presenter account.'
-                : 'Future sign-in: IEEE or approved conference-admin account.'}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-muted-foreground">
-              {message}
-            </div>
-            <Button variant="outline" onClick={onReset}>
-              Reset demo
-            </Button>
-          </div>
         </div>
       </header>
-      <section className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">{children}</section>
-    </>
-  );
-}
-
-function PresenterWorkspace(props: {
-  step: PresenterStep;
-  keyInput: string;
-  setKeyInput: (value: string) => void;
-  signIn: () => void;
-  submissions: Submission[];
-  activeSubmission: Submission | null;
-  activePresenter: Presenter | null;
-  activeBlock: Block | null;
-  eligibleBlocks: Block[];
-  state: SchedulerState;
-  updatePresenter: (field: keyof Presenter, value: string) => void;
-  setStep: (step: PresenterStep) => void;
-  book: (periodId: string) => void;
-  requestHelp: () => void;
-  helpNote: string;
-  setHelpNote: (value: string) => void;
-}) {
-  const steps: [PresenterStep, string][] = [
-    ['key', 'Sign in'],
-    ['review', 'Check details'],
-    ['book', 'Choose period'],
-    ['done', 'Confirmed'],
-  ];
-
-  return (
-    <div className="grid gap-5 lg:grid-cols-[300px_minmax(0,1fr)]">
-      <aside className="space-y-4">
-        <Panel>
-          <p className="text-sm font-semibold">Presenter sequence</p>
-          <div className="mt-4 space-y-2">
-            {steps.map(([id, label], index) => (
-              <div
-                key={id}
-                className={`flex items-center gap-3 rounded-lg border p-3 ${
-                  props.step === id ? 'border-primary bg-primary/5' : 'border-border bg-background'
-                }`}
-              >
-                <span className="flex size-7 items-center justify-center rounded-md bg-muted text-xs font-semibold">
-                  {index + 1}
+      {role === 'home' ? (
+        <main id="main" className="home-main">
+          <div className="home-heading">
+            <span className="eyebrow">
+              UNDERGRADUATE RESEARCH TECHNOLOGY CONFERENCE
+            </span>
+            <h1 ref={heading} tabIndex={-1}>
+              Great research.
+              <br />
+              <span>A place on the schedule.</span>
+            </h1>
+            <p>
+              Your next step starts here. Choose your workspace to prepare for
+              URTC 2027.
+            </p>
+          </div>
+          <div className="role-grid">
+            <button
+              className="role-card presenter-card"
+              onClick={() => navigate('presenter')}
+            >
+              <div className="role-card-top">
+                <span className="role-icon">
+                  <GraduationCap size={27} />
                 </span>
-                <span className="text-sm font-medium">{label}</span>
+                <span className="role-tag">FOR ACCEPTED PRESENTERS</span>
               </div>
-            ))}
-          </div>
-        </Panel>
-        <Panel>
-          <PanelTitle icon={<KeyRound />}>Demo keys</PanelTitle>
-          <div className="mt-3 space-y-2">
-            {props.submissions.map((submission) => (
-              <button
-                key={submission.id}
-                onClick={() => props.setKeyInput(submission.key)}
-                className="w-full rounded-lg border border-border bg-background p-3 text-left text-xs font-mono hover:border-primary"
-              >
-                {submission.key}
-              </button>
-            ))}
-          </div>
-        </Panel>
-      </aside>
-
-      <div className="space-y-5">
-        {props.step === 'key' ? (
-          <Panel className="min-h-[520px]">
-            <div className="mx-auto flex max-w-xl flex-col justify-center py-10">
-              <LockKeyhole className="size-10 text-primary" />
-              <h2 className="mt-5 text-3xl font-semibold tracking-tight">Enter your unique key</h2>
-              <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                In production, this page will be reached from an email invitation. The key loads only the accepted submission attached to that presenter.
+              <h2>Presenter</h2>
+              <p>
+                Find your submission, check the details, and reserve your
+                presentation time.
               </p>
-              <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-                <Input
-                  value={props.keyInput}
-                  onChange={(event) => props.setKeyInput(event.target.value)}
-                  className="font-mono"
-                  placeholder="URTC-AI-201"
-                />
-                <Button onClick={props.signIn}>Continue</Button>
+              <div className="role-steps">
+                <span>01 &nbsp; Verify</span>
+                <span>02 &nbsp; Review</span>
+                <span>03 &nbsp; Book</span>
               </div>
+              <div className="role-cta">
+                Schedule my presentation <ArrowRight size={21} />
+              </div>
+            </button>
+            <button
+              className="role-card organizer-card"
+              onClick={() => navigate('organizer')}
+            >
+              <div className="role-card-top">
+                <span className="role-icon">
+                  <LayoutDashboard size={25} />
+                </span>
+                <span className="role-tag">FOR THE CONFERENCE TEAM</span>
+              </div>
+              <h2>Organizer</h2>
+              <p>
+                Manage accepted research, shape track sessions, and bring the
+                program together.
+              </p>
+              <div className="role-steps">
+                <span>Submissions</span>
+                <span>Track blocks</span>
+                <span>Schedule</span>
+              </div>
+              <div className="role-cta">
+                Open organizer workspace <ArrowRight size={21} />
+              </div>
+            </button>
+          </div>
+          <div className="home-bottom">
+            <span>
+              <KeyRound size={17} /> Presenters, have the unique key from your
+              invitation ready.
+            </span>
+            <span>
+              <ShieldCheck size={17} /> Organizer access is restricted.
+            </span>
+          </div>
+          <footer className="home-footer">
+            <span>URTC 2027 · Research worth sharing.</span>
+            <span>May 14–16 · All scheduling times in Pacific Time</span>
+          </footer>
+        </main>
+      ) : (
+        <div className="workspace-grid">
+          <aside className="sidebar">
+            <div className="workspace-label">
+              {role === 'organizer'
+                ? 'CONFERENCE MANAGEMENT'
+                : 'YOUR PRESENTATION'}
             </div>
-          </Panel>
-        ) : null}
-
-        {props.step === 'review' && props.activeSubmission && props.activePresenter ? (
-          <Panel>
-            <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
-              <div>
-                <Badge variant="outline">{props.activeSubmission.key}</Badge>
-                <h2 className="mt-3 text-3xl font-semibold tracking-tight">
-                  {props.activeSubmission.title}
-                </h2>
-                <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                  Auto-filled from the accepted-submission record. The presenter checks this before scheduling.
-                </p>
-                <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                  <Stat label="Type" value={props.activeSubmission.type} />
-                  <Stat label="Track" value={props.activeSubmission.track} />
-                  <Stat label="Period length" value={`${props.activeSubmission.durationMinutes} min`} />
-                </div>
-                <div className="mt-5 rounded-lg border border-border bg-muted/30 p-4">
-                  <p className="text-sm font-medium">Abstract</p>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    {props.activeSubmission.abstract}
+            {role === 'organizer' ? (
+              <>
+                <nav aria-label="Organizer navigation">
+                  {navItems.map(([id, Icon]) => (
+                    <button
+                      key={id}
+                      className={`nav-item ${view === id ? 'active' : ''}`}
+                      onClick={() => navigate('organizer', id)}
+                      aria-current={view === id ? 'page' : undefined}
+                    >
+                      <Icon size={19} />
+                      {viewNames[id]}
+                      {id === 'submissions' && data.organizer && (
+                        <span className="nav-count">
+                          {data.state.submissions.length}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </nav>
+                <div className="sidebar-note">
+                  <ShieldCheck size={20} />
+                  <strong>Organizer workspace</strong>
+                  <p>
+                    Manage the program with one shared, up-to-date schedule.
                   </p>
                 </div>
-              </div>
-              <div className="space-y-3 rounded-lg border border-border bg-background p-4">
-                <p className="text-sm font-semibold">Presenter contact</p>
-                <label className="space-y-1">
-                  <span className="text-xs font-medium text-muted-foreground">Name</span>
-                  <Input value={props.activePresenter.name} onChange={(event) => props.updatePresenter('name', event.target.value)} />
-                  <p className="text-xs leading-5 text-muted-foreground">This is the display name used in the conference program.</p>
-                </label>
-                <label className="space-y-1">
-                  <span className="text-xs font-medium text-muted-foreground">Email</span>
-                  <Input value={props.activePresenter.email} onChange={(event) => props.updatePresenter('email', event.target.value)} />
-                  <p className="text-xs leading-5 text-muted-foreground">Confirmation and schedule-change messages go here.</p>
-                </label>
-                <label className="space-y-1">
-                  <span className="text-xs font-medium text-muted-foreground">Institution</span>
-                  <Input value={props.activePresenter.institution} onChange={(event) => props.updatePresenter('institution', event.target.value)} />
-                  <p className="text-xs leading-5 text-muted-foreground">Shown beside your name in internal schedules and program drafts.</p>
-                </label>
-                <label className="space-y-1">
-                  <span className="text-xs font-medium text-muted-foreground">Time zone</span>
-                  <Input value={props.activePresenter.timezone} onChange={(event) => props.updatePresenter('timezone', event.target.value)} />
-                  <p className="text-xs leading-5 text-muted-foreground">Used to make scheduling times clear for presenters traveling to the conference.</p>
-                </label>
-                <Button className="w-full" onClick={() => props.setStep('book')}>
-                  Details are correct
-                </Button>
-              </div>
-            </div>
-          </Panel>
-        ) : null}
-
-        {props.step === 'book' && props.activeSubmission ? (
-          <Panel>
-            <div className="flex flex-col justify-between gap-3 border-b border-border pb-4 lg:flex-row lg:items-end">
-              <div>
-                <PanelTitle icon={<CalendarDays />}>Choose a bookable presentation period</PanelTitle>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Only blocks matching {props.activeSubmission.track} and {props.activeSubmission.type} are shown.
-                </p>
-              </div>
-            </div>
-            <div className="mt-5 space-y-4">
-              {props.eligibleBlocks.length === 0 ? (
-                <EmptyState text="No matching track block has been created yet." />
-              ) : (
-                props.eligibleBlocks.map((block) => (
-                  <TrackBlock
-                    key={block.id}
-                    block={block}
-                    state={props.state}
-                    activeSubmission={props.activeSubmission}
-                    book={props.book}
-                  />
-                ))
-              )}
-            </div>
-            <section
-              aria-labelledby="availability-help"
-              className="mt-5 rounded-lg border-2 border-amber-300 bg-amber-50 p-5 text-amber-950 shadow-sm"
-            >
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
-                <div>
-                  <h3 id="availability-help" className="flex items-center gap-2 text-lg font-semibold">
-                    <Mail className="size-5" />
-                    Need a different time?
-                  </h3>
-                  <p className="mt-2 text-sm leading-6">
-                    If none of the available periods work, send an availability note to the organizers. This removes any current booking and marks your submission for follow-up.
-                  </p>
-                  <Textarea
-                    className="mt-4 border-amber-300 bg-white text-foreground"
-                    value={props.helpNote}
-                    onChange={(event) => props.setHelpNote(event.target.value)}
-                    placeholder="Example: I can only present after 11:30 AM on Sunday."
-                    aria-label="Availability note for organizers"
-                  />
-                </div>
-                <div className="flex items-end">
-                  <Button className="h-12 w-full bg-amber-600 text-white hover:bg-amber-700" onClick={props.requestHelp}>
-                    Request organizer follow-up
-                  </Button>
-                </div>
-              </div>
-            </section>
-          </Panel>
-        ) : null}
-
-        {props.step === 'done' && props.activeSubmission ? (
-          <Panel>
-            <div className="mx-auto max-w-2xl py-8 text-center">
-              <CheckCircle2 className="mx-auto size-12 text-emerald-600" />
-              <h2 className="mt-4 text-3xl font-semibold tracking-tight">Your period is booked</h2>
-              <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                {periodLabel(props.state, props.activeSubmission.assignedPeriodId)}
-              </p>
-              <Button className="mt-6" variant="outline" onClick={() => props.setStep('book')}>
-                Change selection
-              </Button>
-            </div>
-          </Panel>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function TrackBlock({
-  block,
-  state,
-  activeSubmission,
-  book,
-}: {
-  block: Block;
-  state: SchedulerState;
-  activeSubmission: Submission;
-  book: (periodId: string) => void;
-}) {
-  const periods = makePeriods(block);
-  return (
-    <section className="rounded-lg border border-border bg-background p-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge className="bg-primary text-primary-foreground">{block.track}</Badge>
-            <Badge variant="outline">{block.type}</Badge>
-          </div>
-          <h3 className="mt-2 text-lg font-semibold">{block.title}</h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {formatDate(block.date)}, {block.start}-{block.end} PT - {block.room} - {block.chair}
-          </p>
-        </div>
-        <div className="text-sm text-muted-foreground">
-          {periods.length} start times, {block.presentationMinutes} min each
-        </div>
-      </div>
-      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
-        {periods.map((period) => {
-          const used = countAssigned(state, period.id, activeSubmission.id);
-          const full = used >= block.capacityPerPeriod;
-          const selected = activeSubmission.assignedPeriodId === period.id;
-          return (
-            <button
-              key={period.id}
-              disabled={full || block.locked || activeSubmission.locked}
-              onClick={() => book(period.id)}
-              className={`rounded-lg border px-3 py-3 text-left transition ${
-                selected
-                  ? 'border-primary bg-primary text-primary-foreground'
-                  : full
-                    ? 'border-border bg-muted text-muted-foreground'
-                    : 'border-border bg-card hover:border-primary hover:bg-primary/5'
-              }`}
-            >
-              <p className="text-sm font-semibold">{period.start}</p>
-              <p className="mt-1 text-xs">{period.end} PT</p>
-              <p className="mt-2 text-xs">
-                {selected ? 'Selected' : full ? 'Full' : `${block.capacityPerPeriod - used} spot${block.capacityPerPeriod - used === 1 ? '' : 's'} open`}
-              </p>
-            </button>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
-function OrganizerWorkspace(props: {
-  view: OrganizerView;
-  setView: (view: OrganizerView) => void;
-  state: SchedulerState;
-  scheduledCount: number;
-  usedSeats: number;
-  totalSeats: number;
-  periodCount: number;
-  selectedBlockId: string;
-  setSelectedBlockId: (id: string) => void;
-  updateBlock: (blockId: string, patch: Partial<Block>) => void;
-  moveBlock: (blockId: string, direction: -1 | 1) => void;
-  addBlock: () => void;
-  deleteBlock: (blockId: string) => void;
-  draft: Draft;
-  setDraft: (draft: Draft) => void;
-  registerSubmission: () => void;
-  search: string;
-  setSearch: (value: string) => void;
-  filteredSubmissions: Submission[];
-  onExport: () => void;
-}) {
-  const nav: [OrganizerView, string, React.ReactNode][] = [
-    ['overview', 'Overview', <LayoutDashboard key="overview" />],
-    ['intake', 'Register', <UserPlus key="intake" />],
-    ['blocks', 'Track blocks', <Layers3 key="blocks" />],
-    ['schedule', 'Schedule', <CalendarDays key="schedule" />],
-  ];
-  const selectedBlock =
-    props.state.blocks.find((block) => block.id === props.selectedBlockId) ??
-    props.state.blocks[0];
-
-  return (
-    <div className="grid gap-5 lg:grid-cols-[240px_minmax(0,1fr)]">
-      <aside className="space-y-4">
-        <Panel>
-          <PanelTitle icon={<LockKeyhole />}>Staff sign-in</PanelTitle>
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            Placeholder for IEEE or conference-admin login.
-          </p>
-          <Button className="mt-4 w-full" variant="outline">
-            Future staff login
-          </Button>
-        </Panel>
-        <Panel className="p-2 sm:p-2">
-          {nav.map(([id, label, icon]) => (
-            <button
-              key={id}
-              onClick={() => props.setView(id)}
-              className={`mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm ${
-                props.view === id ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
-              }`}
-            >
-              <span className="[&_svg]:size-4">{icon}</span>
-              {label}
-            </button>
-          ))}
-        </Panel>
-      </aside>
-
-      <div className="space-y-5">
-        {props.view === 'overview' ? (
-          <>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <Metric label="Accepted submissions" value={String(props.state.submissions.length)} icon={<FileText />} help="Papers, posters, talks, and workshops loaded into the system." />
-              <Metric label="Booked submissions" value={`${props.scheduledCount}/${props.state.submissions.length}`} icon={<CheckCircle2 />} help="Accepted submissions with a confirmed presentation period." />
-              <Metric label="Bookable start times" value={String(props.periodCount)} icon={<Clock3 />} help="Start times generated from all current track blocks." />
-              <Metric label="Open booking spots" value={String(Math.max(0, props.totalSeats - props.usedSeats))} icon={<Users />} help="Remaining presenter spots across all generated periods." />
-            </div>
-            <Panel>
-              <PanelTitle icon={<Sparkles />}>What organizers control</PanelTitle>
-              <div className="mt-4 grid gap-3 md:grid-cols-3">
-                <Info title="Accepted data" text="Import or register accepted papers, posters, and lightning talks before presenters sign in." />
-                <Info title="Track blocks" text="Each track owns one or more blocks. Presenters only see blocks matching their track and type." />
-                <Info title="Presentation periods" text="Each block generates bookable start times from its presentation length, usually 8 minutes." />
-              </div>
-            </Panel>
-          </>
-        ) : null}
-
-        {props.view === 'intake' ? (
-          <Panel>
-            <PanelTitle icon={<UserPlus />}>Register accepted submission</PanelTitle>
-            <div className="mt-5 grid gap-4 md:grid-cols-2">
-              <Input placeholder="Title" value={props.draft.title} onChange={(event) => props.setDraft({ ...props.draft, title: event.target.value })} />
-              <Input placeholder="Presenter name" value={props.draft.name} onChange={(event) => props.setDraft({ ...props.draft, name: event.target.value })} />
-              <Input placeholder="Presenter email" value={props.draft.email} onChange={(event) => props.setDraft({ ...props.draft, email: event.target.value })} />
-              <Input placeholder="Institution" value={props.draft.institution} onChange={(event) => props.setDraft({ ...props.draft, institution: event.target.value })} />
-              <NativeSelect value={props.draft.type} onChange={(event) => props.setDraft({ ...props.draft, type: event.target.value as PresentationType })}>
-                {Object.keys(typeDurations).map((type) => (
-                  <option key={type}>{type}</option>
-                ))}
-              </NativeSelect>
-              <NativeSelect value={props.draft.track} onChange={(event) => props.setDraft({ ...props.draft, track: event.target.value as Track })}>
-                {tracks.map((track) => (
-                  <option key={track}>{track}</option>
-                ))}
-              </NativeSelect>
-              <Textarea
-                className="md:col-span-2"
-                placeholder="AV, accessibility, or scheduling notes"
-                value={props.draft.avNeeds}
-                onChange={(event) => props.setDraft({ ...props.draft, avNeeds: event.target.value })}
-              />
-            </div>
-            <Button className="mt-5" onClick={props.registerSubmission}>
-              Generate unique key
-            </Button>
-          </Panel>
-        ) : null}
-
-        {props.view === 'blocks' ? (
-          <Panel>
-            <div className="flex flex-col justify-between gap-3 border-b border-border pb-4 lg:flex-row lg:items-center">
-              <div>
-                <PanelTitle icon={<Layers3 />}>Track block editor</PanelTitle>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Select any block, edit its schedule rules, reorder it, or create a new one.
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button onClick={props.addBlock}>
-                  <Plus data-icon="inline-start" />
-                  New block
-                </Button>
-                <Button variant="outline" onClick={() => props.moveBlock(selectedBlock.id, -1)}>
-                  Move up
-                </Button>
-                <Button variant="outline" onClick={() => props.moveBlock(selectedBlock.id, 1)}>
-                  Move down
-                </Button>
-                <Button variant="destructive" onClick={() => props.deleteBlock(selectedBlock.id)}>
-                  <Trash2 data-icon="inline-start" />
-                  Delete
-                </Button>
-              </div>
-            </div>
-            <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
-              <div className="space-y-3">
-                {props.state.blocks.map((block) => (
-                  <button
-                    key={block.id}
-                    onClick={() => props.setSelectedBlockId(block.id)}
-                    className={`w-full rounded-lg border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md ${
-                      selectedBlock.id === block.id
-                        ? 'border-primary bg-primary text-primary-foreground'
-                        : 'border-border bg-background'
-                    }`}
-                  >
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                {data.organizer && (
+                  <div className="sidebar-account">
+                    <span className="avatar">
+                      {data.email.slice(0, 1).toUpperCase()}
+                    </span>
+                    <div>
+                      <strong>Conference organizer</strong>
+                      <span>{data.email}</span>
+                    </div>
+                    <a
+                      href="/signout-with-chatgpt?return_to=%2F"
+                      aria-label="Sign out of organizer account"
+                    >
+                      <LogOut size={17} />
+                    </a>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <nav aria-label="Presentation progress" className="step-nav">
+                  {[
+                    'Verify your key',
+                    'Review details',
+                    'Choose a time',
+                    'Confirmation',
+                  ].map((label, i) => (
+                    <div
+                      key={label}
+                      className={`step-item ${step === i ? 'current' : ''} ${step > i ? 'complete' : ''}`}
+                      aria-current={step === i ? 'step' : undefined}
+                    >
+                      <span>{step > i ? <Check size={15} /> : i + 1}</span>
                       <div>
-                        <p className="font-semibold">{block.title}</p>
-                        <p className={`text-sm ${selectedBlock.id === block.id ? 'text-primary-foreground/75' : 'text-muted-foreground'}`}>
-                          {formatDate(block.date)}, {block.start}-{block.end} - {block.room}
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <Badge variant={selectedBlock.id === block.id ? 'secondary' : 'default'}>{block.track}</Badge>
-                        <Badge variant="outline">{block.type}</Badge>
-                        <Badge variant="secondary">{makePeriods(block).length} start times</Badge>
+                        <strong>{label}</strong>
+                        <small>
+                          {
+                            [
+                              'From your acceptance email',
+                              'Your accepted submission',
+                              'Available times in your track',
+                              'You’re ready to present',
+                            ][i]
+                          }
+                        </small>
                       </div>
                     </div>
+                  ))}
+                </nav>
+                <div className="sidebar-note">
+                  <CalendarDays size={20} />
+                  <strong>A time that works for you</strong>
+                  <p>
+                    Only sessions matching your accepted track and format are
+                    available to book.
+                  </p>
+                  <span className="timezone-pill">America/Los_Angeles</span>
+                </div>
+                {own && (
+                  <button
+                    className="nav-item signout"
+                    disabled={busy}
+                    onClick={signout}
+                  >
+                    <LogOut size={18} /> Sign out of submission
                   </button>
-                ))}
-              </div>
-
-              <div className="rounded-lg border border-border bg-background p-4">
-                <p className="text-sm font-semibold">Edit selected block</p>
-                <div className="mt-4 space-y-3">
-                  <label className="space-y-1">
-                    <span className="text-xs font-medium text-muted-foreground">Block title</span>
-                    <Input value={selectedBlock.title} onChange={(event) => props.updateBlock(selectedBlock.id, { title: event.target.value })} />
-                    <p className="text-xs leading-5 text-muted-foreground">Shown to presenters as the name of the session block.</p>
-                  </label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <label className="space-y-1">
-                      <span className="text-xs font-medium text-muted-foreground">Track</span>
-                      <NativeSelect value={selectedBlock.track} onChange={(event) => props.updateBlock(selectedBlock.id, { track: event.target.value as Track })}>
-                        {tracks.map((track) => <option key={track}>{track}</option>)}
-                      </NativeSelect>
-                      <p className="text-xs leading-5 text-muted-foreground">Only presenters in this track can see this block.</p>
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-xs font-medium text-muted-foreground">Type</span>
-                      <NativeSelect value={selectedBlock.type} onChange={(event) => props.updateBlock(selectedBlock.id, { type: event.target.value as PresentationType })}>
-                        {Object.keys(typeDurations).map((type) => <option key={type}>{type}</option>)}
-                      </NativeSelect>
-                      <p className="text-xs leading-5 text-muted-foreground">Paper, poster, lightning talk, or workshop eligibility.</p>
-                    </label>
-                  </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    <label className="space-y-1">
-                      <span className="text-xs font-medium text-muted-foreground">Date</span>
-                      <NativeSelect value={selectedBlock.date} onChange={(event) => props.updateBlock(selectedBlock.id, { date: event.target.value as Block['date'] })}>
-                        <option value="2027-05-15">Saturday</option>
-                        <option value="2027-05-16">Sunday</option>
-                      </NativeSelect>
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-xs font-medium text-muted-foreground">Start</span>
-                      <Input type="time" value={selectedBlock.start} onChange={(event) => props.updateBlock(selectedBlock.id, { start: event.target.value })} />
-                      <p className="text-xs leading-5 text-muted-foreground">First possible presenter start time.</p>
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-xs font-medium text-muted-foreground">End</span>
-                      <Input type="time" value={selectedBlock.end} onChange={(event) => props.updateBlock(selectedBlock.id, { end: event.target.value })} />
-                      <p className="text-xs leading-5 text-muted-foreground">No start times are generated after this block ends.</p>
-                    </label>
-                  </div>
-                  <label className="space-y-1">
-                    <span className="text-xs font-medium text-muted-foreground">Location</span>
-                    <Input value={selectedBlock.room} onChange={(event) => props.updateBlock(selectedBlock.id, { room: event.target.value })} />
-                    <p className="text-xs leading-5 text-muted-foreground">Room or poster area shown in confirmations and exports.</p>
-                  </label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <label className="space-y-1">
-                      <span className="text-xs font-medium text-muted-foreground">Presentation length</span>
-                      <Input
-                        type="number"
-                        min={4}
-                        max={60}
-                        value={selectedBlock.presentationMinutes}
-                        onChange={(event) => props.updateBlock(selectedBlock.id, { presentationMinutes: Number(event.target.value) || 8 })}
-                      />
-                      <p className="text-xs leading-5 text-muted-foreground">Length of each bookable presenter period.</p>
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-xs font-medium text-muted-foreground">Spots per start</span>
-                      <Input
-                        type="number"
-                        min={1}
-                        max={12}
-                        value={selectedBlock.capacityPerPeriod}
-                        onChange={(event) => props.updateBlock(selectedBlock.id, { capacityPerPeriod: Number(event.target.value) || 1 })}
-                      />
-                      <p className="text-xs leading-5 text-muted-foreground">How many presenters can choose the same start time.</p>
-                    </label>
-                  </div>
-                  <label className="space-y-1">
-                    <span className="text-xs font-medium text-muted-foreground">Session chair</span>
-                    <Input value={selectedBlock.chair} onChange={(event) => props.updateBlock(selectedBlock.id, { chair: event.target.value })} />
-                  </label>
-                </div>
-                <div className="mt-4 rounded-lg bg-muted p-3 text-sm text-muted-foreground">
-                  This block currently creates {makePeriods(selectedBlock).length} bookable start times.
-                </div>
-              </div>
+                )}
+              </>
+            )}
+          </aside>
+          <main id="main" className="workspace-main">
+            <div className="breadcrumbs">
+              <span>{role === 'organizer' ? 'Organizer' : 'Presenter'}</span>
+              <ChevronRight size={14} />
+              <span>
+                {role === 'organizer'
+                  ? viewNames[view]
+                  : [
+                      'Sign in',
+                      'Submission details',
+                      'Book a slot',
+                      'Booking confirmed',
+                    ][step]}
+              </span>
             </div>
-          </Panel>
-        ) : null}
-
-        {props.view === 'schedule' ? (
-          <Panel>
-            <div className="flex flex-col gap-3 border-b border-border pb-4 lg:flex-row lg:items-center lg:justify-between">
-              <PanelTitle icon={<Search />}>Schedule and keys</PanelTitle>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Input value={props.search} onChange={(event) => props.setSearch(event.target.value)} placeholder="Search submissions" />
-                <Button onClick={props.onExport}>
-                  <Download data-icon="inline-start" />
-                  Export
+            {notice && (
+              <div
+                className={`notice ${notice.error ? 'notice-error' : ''}`}
+                role={notice.error ? 'alert' : 'status'}
+              >
+                {notice.error ? (
+                  <AlertCircle size={18} />
+                ) : (
+                  <CheckCircle2 size={18} />
+                )}
+                <span>{notice.text}</span>
+                <button
+                  aria-label="Dismiss message"
+                  onClick={() => setNotice(null)}
+                >
+                  <X size={17} />
+                </button>
+              </div>
+            )}
+            {loadError ? (
+              <Empty
+                icon={<AlertCircle />}
+                title="We couldn’t load the schedule"
+                text="Please try again. Your existing bookings are safe."
+                action={<Button onClick={refresh}>Try again</Button>}
+              />
+            ) : loading ? (
+              <output className="loading-state">
+                <Loader2 className="spin" />
+                Loading your workspace…
+              </output>
+            ) : role === 'organizer' && !data.organizer ? (
+              <section className="auth-panel">
+                <span className="large-icon">
+                  <ShieldCheck size={30} />
+                </span>
+                <span className="eyebrow">ORGANIZER ACCESS</span>
+                <h1 ref={heading} tabIndex={-1}>
+                  {data.signedIn
+                    ? 'Organizer access required'
+                    : 'Welcome, conference team.'}
+                </h1>
+                <p>
+                  {data.signedIn
+                    ? `${data.email} is not on the organizer list. Sign in with your approved account to continue.`
+                    : 'Sign in with your approved ChatGPT account to manage submissions and the conference schedule.'}
+                </p>
+                <a
+                  className="primary-link"
+                  href={
+                    data.signedIn
+                      ? '/signout-with-chatgpt?return_to=%2F%3Frole%3Dorganizer'
+                      : '/signin-with-chatgpt?return_to=%2F%3Frole%3Dorganizer'
+                  }
+                >
+                  {data.signedIn ? 'Switch account' : 'Continue with ChatGPT'}
+                  <ArrowRight size={17} />
+                </a>
+                <button
+                  className="text-link"
+                  onClick={() => navigate('presenter')}
+                >
+                  Presenting at URTC? Use your unique key instead.
+                </button>
+              </section>
+            ) : role === 'presenter' ? (
+              <>
+                {!own || step === 0 ? (
+                  <section className="auth-panel">
+                    <span className="large-icon">
+                      <KeyRound size={28} />
+                    </span>
+                    <span className="eyebrow">LET’S GET YOU SCHEDULED</span>
+                    <h1 ref={heading} tabIndex={-1}>
+                      Your research. Your time.
+                    </h1>
+                    <p>
+                      Enter the unique presenter key from your acceptance email
+                      to find your submission.
+                    </p>
+                    <form onSubmit={login} className="key-form">
+                      <Field label="Presenter key">
+                        <Input
+                          autoComplete="off"
+                          spellCheck={false}
+                          value={keyInput}
+                          onChange={(e) => setKeyInput(e.target.value)}
+                          placeholder="URTC-…"
+                          required
+                          maxLength={100}
+                          className="key-input"
+                        />
+                      </Field>
+                      <Button type="submit" disabled={busy || !keyInput.trim()}>
+                        {busy ? (
+                          <Loader2 className="spin" />
+                        ) : (
+                          <>
+                            Find my submission
+                            <ArrowRight size={17} />
+                          </>
+                        )}
+                      </Button>
+                    </form>
+                    <div className="auth-hint">
+                      <LockKeyhole size={16} />
+                      <span>
+                        Your key opens only your accepted submission. Keep it
+                        private.
+                      </span>
+                    </div>
+                    <details className="help-details">
+                      <summary>Can’t find your presenter key?</summary>
+                      <p>
+                        Check your acceptance or scheduling invitation,
+                        including your spam folder. If it is missing, reply to
+                        your acceptance email and ask the conference team for
+                        your key.
+                      </p>
+                    </details>
+                  </section>
+                ) : (
+                  <>
+                    <div className="page-heading">
+                      <div>
+                        <span className="eyebrow">PRESENTER WORKSPACE</span>
+                        <h1 ref={heading} tabIndex={-1}>
+                          {step === 1
+                            ? 'First, a quick review.'
+                            : step === 2
+                              ? 'Find your moment.'
+                              : 'You’re on the schedule.'}
+                        </h1>
+                        <p>
+                          {step === 1
+                            ? 'Confirm your submission and contact details before choosing a time.'
+                            : step === 2
+                              ? 'Choose an available slot, then confirm your selection. All times are Pacific.'
+                              : 'Your presentation time is saved. Add it to your calendar so you’re ready.'}
+                        </p>
+                      </div>
+                      <Status submission={own} />
+                    </div>
+                    {step === 1 && presenter && (
+                      <div className="review-grid">
+                        <section className="surface submission-detail">
+                          <div className="section-kicker">
+                            <FileText size={18} />
+                            ACCEPTED SUBMISSION
+                          </div>
+                          <h2>{own.title}</h2>
+                          <div className="tags">
+                            <span className="track-chip">{own.track}</span>
+                            <span className="neutral-chip">{own.type}</span>
+                            <span className="neutral-chip">
+                              <Clock3 size={14} />
+                              {own.durationMinutes} minutes
+                            </span>
+                          </div>
+                          <div className="detail-section">
+                            <h3>Abstract</h3>
+                            <p>{own.abstract || 'No abstract provided.'}</p>
+                          </div>
+                          <div className="detail-section">
+                            <h3>Coauthors</h3>
+                            <p>{own.coauthors || 'No coauthors listed.'}</p>
+                          </div>
+                          <div className="detail-section">
+                            <h3>Presentation & AV requirements</h3>
+                            <p>
+                              {own.avNeeds || 'No special requirements noted.'}
+                            </p>
+                          </div>
+                          <div className="soft-note">
+                            <LifeBuoy size={18} />
+                            <p>
+                              Something incorrect? Reply to your acceptance
+                              email so the team can update the accepted record.
+                            </p>
+                          </div>
+                        </section>
+                        <section className="surface">
+                          <div className="section-title">
+                            <h2>Presenter details</h2>
+                            <Users size={19} />
+                          </div>
+                          <p className="muted mb-5">
+                            How you’ll appear in the program.
+                          </p>
+                          <form
+                            key={presenter.id}
+                            onSubmit={async (e) => {
+                              e.preventDefault();
+                              const fields = Object.fromEntries(
+                                new FormData(e.currentTarget),
+                              );
+                              if (
+                                await act(
+                                  { kind: 'update-contact', data: fields },
+                                  'Presenter details saved.',
+                                )
+                              )
+                                setStep(2);
+                            }}
+                            className="form-stack"
+                          >
+                            <Field label="Full name">
+                              <Input
+                                name="name"
+                                defaultValue={presenter.name}
+                                required
+                                maxLength={150}
+                              />
+                            </Field>
+                            <Field label="Email address">
+                              <Input
+                                type="email"
+                                name="email"
+                                defaultValue={presenter.email}
+                                required
+                                maxLength={254}
+                              />
+                            </Field>
+                            <Field label="Institution">
+                              <Input
+                                name="institution"
+                                defaultValue={presenter.institution}
+                                required
+                                maxLength={200}
+                              />
+                            </Field>
+                            <div className="soft-note">
+                              <Clock3 size={17} />
+                              <p>
+                                Conference times are shown in Pacific Time,
+                                regardless of your location.
+                              </p>
+                            </div>
+                            <Button disabled={busy || own.locked} type="submit">
+                              {busy ? (
+                                <Loader2 className="spin" />
+                              ) : (
+                                <>
+                                  Save & choose a time
+                                  <ArrowRight size={17} />
+                                </>
+                              )}
+                            </Button>
+                            {own.locked && (
+                              <p className="muted">
+                                Your record is locked. Contact the organizer to
+                                update it.
+                              </p>
+                            )}
+                          </form>
+                        </section>
+                      </div>
+                    )}
+                    {step === 2 && (
+                      <>
+                        <div className="presenter-summary">
+                          <span className="avatar">
+                            <GraduationCap size={20} />
+                          </span>
+                          <div>
+                            <strong>{own.title}</strong>
+                            <span>
+                              {own.track} · {own.type} · {own.durationMinutes}{' '}
+                              minutes
+                            </span>
+                          </div>
+                          <button
+                            className="text-link"
+                            onClick={() => setStep(1)}
+                          >
+                            Review details
+                          </button>
+                        </div>
+                        {own.assignedPeriodId && (
+                          <div className="soft-note current-booking">
+                            <CheckCircle2 size={18} />
+                            <p>
+                              Current booking:{' '}
+                              <strong>
+                                {periodLabel(data.state, own.assignedPeriodId)}
+                              </strong>
+                              . It stays reserved until you confirm a
+                              replacement.
+                            </p>
+                          </div>
+                        )}
+                        <div className="slot-layout">
+                          <div className="block-list">
+                            {data.state.blocks
+                              .filter(
+                                (b) =>
+                                  b.track === own.track &&
+                                  b.type === own.type &&
+                                  b.presentationMinutes >= own.durationMinutes,
+                              )
+                              .map((b) => (
+                                <section
+                                  key={b.id}
+                                  className="surface slot-block"
+                                >
+                                  <div className="block-header">
+                                    <div>
+                                      <span className="eyebrow">
+                                        {formatDate(b.date)}
+                                      </span>
+                                      <h2>{b.title}</h2>
+                                      <p>
+                                        <MapPin size={14} />
+                                        {b.room}
+                                        <span>·</span>
+                                        {b.presentationMinutes} min per slot
+                                        {b.chair && (
+                                          <>
+                                            <span>·</span>
+                                            {b.chair}
+                                          </>
+                                        )}
+                                      </p>
+                                    </div>
+                                    {b.locked && (
+                                      <span className="neutral-chip">
+                                        <LockKeyhole size={13} />
+                                        Booking closed
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="slots">
+                                    {makePeriods(b).map((p) => {
+                                      const full =
+                                        (data.occupancy[p.id] ?? 0) >=
+                                        b.capacityPerPeriod;
+                                      const current =
+                                        own.assignedPeriodId === p.id;
+                                      return (
+                                        <button
+                                          key={p.id}
+                                          className={`slot ${selectedSlot === p.id ? 'selected' : ''} ${current ? 'reserved' : ''}`}
+                                          disabled={
+                                            busy ||
+                                            full ||
+                                            b.locked ||
+                                            own.locked
+                                          }
+                                          aria-label={`${timeLabel(p.start)} in ${b.room}, ${full ? 'fully booked' : 'select slot'}`}
+                                          aria-pressed={selectedSlot === p.id}
+                                          onClick={() => setSelectedSlot(p.id)}
+                                        >
+                                          <strong>{timeLabel(p.start)}</strong>
+                                          <span>
+                                            {current
+                                              ? 'Your current time'
+                                              : full
+                                                ? 'Fully booked'
+                                                : b.locked
+                                                  ? 'Closed'
+                                                  : `${b.capacityPerPeriod - (data.occupancy[p.id] ?? 0)} available`}
+                                          </span>
+                                          {selectedSlot === p.id && (
+                                            <CheckCircle2 size={16} />
+                                          )}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </section>
+                              ))}
+                            {!data.state.blocks.some(
+                              (b) =>
+                                b.track === own.track &&
+                                b.type === own.type &&
+                                b.presentationMinutes >= own.durationMinutes,
+                            ) && (
+                              <Empty
+                                icon={<CalendarDays />}
+                                title="Your track’s times aren’t available yet"
+                                text="Send an availability note below so the team can help you schedule."
+                              />
+                            )}
+                          </div>
+                          <aside className="surface booking-review">
+                            <span className="section-kicker">
+                              YOUR SELECTION
+                            </span>
+                            <h2>
+                              {selectedSlot
+                                ? 'Ready to confirm?'
+                                : 'Choose your time'}
+                            </h2>
+                            {selectedSlot ? (
+                              <>
+                                <div className="booking-selection">
+                                  <CalendarDays size={22} />
+                                  <strong>
+                                    {periodLabel(data.state, selectedSlot)}
+                                  </strong>
+                                </div>
+                                <p className="muted">
+                                  We’ll check availability again when you
+                                  confirm.
+                                </p>
+                                <Button
+                                  disabled={busy || own.locked}
+                                  onClick={async () => {
+                                    if (
+                                      await act(
+                                        {
+                                          kind: 'book',
+                                          periodId: selectedSlot,
+                                        },
+                                        'Your booking is confirmed.',
+                                      )
+                                    ) {
+                                      setStep(3);
+                                      setSelectedSlot('');
+                                    } else {
+                                      await refresh();
+                                    }
+                                  }}
+                                >
+                                  {busy ? (
+                                    <Loader2 className="spin" />
+                                  ) : (
+                                    <>
+                                      Confirm booking
+                                      <Check size={17} />
+                                    </>
+                                  )}
+                                </Button>
+                              </>
+                            ) : (
+                              <p className="muted">
+                                Select one of the available times to review and
+                                confirm your booking.
+                              </p>
+                            )}
+                            <div className="slot-legend">
+                              <span>
+                                <i />
+                                Available
+                              </span>
+                              <span>
+                                <i className="selected-dot" />
+                                Selected
+                              </span>
+                            </div>
+                            <button
+                              className="text-link"
+                              disabled={loading}
+                              onClick={refresh}
+                            >
+                              <RefreshCw size={14} /> Refresh availability
+                            </button>
+                          </aside>
+                        </div>
+                        <section className="help-panel">
+                          <div>
+                            <LifeBuoy size={23} />
+                            <h2>Need a different time?</h2>
+                            <p>
+                              Share your availability with the team. Your
+                              current booking will stay reserved.
+                            </p>
+                          </div>
+                          <form
+                            onSubmit={async (e) => {
+                              e.preventDefault();
+                              if (
+                                await act(
+                                  { kind: 'help', note },
+                                  'Your request is in the organizer’s queue. Your existing booking is unchanged.',
+                                )
+                              )
+                                setNote('');
+                            }}
+                          >
+                            <label className="sr-only" htmlFor="availability">
+                              Your availability
+                            </label>
+                            <Textarea
+                              id="availability"
+                              value={note}
+                              onChange={(e) => setNote(e.target.value)}
+                              placeholder="Tell us which dates and times work for you…"
+                              required
+                              maxLength={2000}
+                            />
+                            <Button
+                              variant="outline"
+                              disabled={busy || !note.trim()}
+                            >
+                              Request scheduling help
+                            </Button>
+                          </form>
+                        </section>
+                      </>
+                    )}
+                    {step === 3 && (
+                      <section className="surface confirmation">
+                        <span className="confirmation-icon">
+                          <Check size={34} />
+                        </span>
+                        <span className="eyebrow">BOOKING CONFIRMED</span>
+                        <h2>{own.title}</h2>
+                        <div className="confirmation-ticket">
+                          <div>
+                            <CalendarDays size={22} />
+                            <strong>
+                              {periodLabel(data.state, own.assignedPeriodId)}
+                            </strong>
+                          </div>
+                          <div className="ticket-meta">
+                            <span>{presenter?.name}</span>
+                            <span>
+                              {own.type} · {own.durationMinutes} minutes
+                            </span>
+                          </div>
+                        </div>
+                        <p>
+                          You can return with your presenter key to review or
+                          change this booking.
+                        </p>
+                        <div className="button-row">
+                          <Button onClick={() => calendarFile(data, own)}>
+                            <Download size={17} />
+                            Add to calendar
+                          </Button>
+                          <Button variant="outline" onClick={() => setStep(2)}>
+                            Change time
+                          </Button>
+                        </div>
+                        {!own.locked && (
+                          <button
+                            className="text-link danger-text"
+                            disabled={busy}
+                            onClick={() => openModal('cancel', own.id)}
+                          >
+                            Cancel booking
+                          </button>
+                        )}
+                        {own.locked && (
+                          <div className="soft-note">
+                            <LockKeyhole size={17} />
+                            The organizer has locked this booking.
+                          </div>
+                        )}
+                      </section>
+                    )}
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                <div className="page-heading">
+                  <div>
+                    <span className="eyebrow">
+                      URTC 2027 / CONFERENCE MANAGEMENT
+                    </span>
+                    <h1 ref={heading} tabIndex={-1}>
+                      {view === 'overview'
+                        ? 'Let’s bring the program together.'
+                        : viewNames[view]}
+                    </h1>
+                    <p>
+                      {view === 'overview'
+                        ? 'A clear view of your research program, from acceptance to presentation.'
+                        : view === 'submissions'
+                          ? 'Manage accepted research and give each presenter their unique key.'
+                          : view === 'blocks'
+                            ? 'Define when and where each track can present.'
+                            : 'Review confirmed presentations and keep the team aligned.'}
+                    </p>
+                  </div>
+                  <div className="button-row">
+                    <Button
+                      variant="outline"
+                      onClick={refresh}
+                      disabled={busy}
+                      aria-label="Refresh schedule"
+                    >
+                      <RefreshCw size={16} />
+                    </Button>
+                    {view === 'blocks' ? (
+                      <Button onClick={() => openModal('block')}>
+                        <Plus size={17} />
+                        Create block
+                      </Button>
+                    ) : view === 'submissions' ? (
+                      <Button onClick={() => openModal('submission')}>
+                        <Plus size={17} />
+                        Add submission
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        onClick={() => exportSchedule(data)}
+                      >
+                        <Download size={17} />
+                        Export schedule
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                {view === 'overview' && (
+                  <>
+                    <div className="metrics">
+                      <Metric
+                        label="Accepted submissions"
+                        value={data.state.submissions.length}
+                        icon={<FileText />}
+                        detail="Ready for the conference"
+                      />
+                      <Metric
+                        label="Confirmed bookings"
+                        value={booked}
+                        icon={<CheckCircle2 />}
+                        detail={`${data.state.submissions.length - booked} still to schedule`}
+                        tone="green"
+                      />
+                      <Metric
+                        label="Need attention"
+                        value={help.length}
+                        icon={<LifeBuoy />}
+                        detail="Presenter scheduling requests"
+                        tone="amber"
+                      />
+                      <Metric
+                        label="Track blocks"
+                        value={data.state.blocks.length}
+                        icon={<Layers3 />}
+                        detail={`${capacity} spots in open blocks`}
+                      />
+                    </div>
+                    <div className="overview-grid">
+                      <section className="surface">
+                        <div className="section-title">
+                          <div>
+                            <h2>Program readiness</h2>
+                            <p>Presentation bookings across your tracks</p>
+                          </div>
+                          <span className="progress-number">
+                            {data.state.submissions.length
+                              ? Math.round(
+                                  (booked / data.state.submissions.length) *
+                                    100,
+                                )
+                              : 0}
+                            <small>%</small>
+                          </span>
+                        </div>
+                        <div className="progress-bar">
+                          <span
+                            style={{
+                              width: `${data.state.submissions.length ? (booked / data.state.submissions.length) * 100 : 0}%`,
+                            }}
+                          />
+                        </div>
+                        <div className="track-readiness">
+                          {tracks.map((track, i) => {
+                            const all = data.state.submissions.filter(
+                                (s) => s.track === track,
+                              ),
+                              n = all.filter((s) => s.assignedPeriodId).length;
+                            return (
+                              <div className="track-row" key={track}>
+                                <span className={`track-dot track-${i}`} />
+                                <strong>{track}</strong>
+                                <span>
+                                  {n} / {all.length}
+                                </span>
+                                <div className="mini-progress">
+                                  <span
+                                    style={{
+                                      width: `${all.length ? (n / all.length) * 100 : 0}%`,
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <button
+                          className="section-link"
+                          onClick={() => navigate('organizer', 'schedule')}
+                        >
+                          View full schedule
+                          <ArrowRight size={16} />
+                        </button>
+                      </section>
+                      <section className="surface attention">
+                        <div className="section-title">
+                          <h2>Needs attention</h2>
+                          <span className="count-pill">{help.length}</span>
+                        </div>
+                        {help.length ? (
+                          help.map((s) => (
+                            <button
+                              className="attention-item"
+                              key={s.id}
+                              onClick={() => openModal('submission', s.id)}
+                            >
+                              <span className="avatar amber-avatar">
+                                {presenterFor(data.state, s)?.name.slice(0, 1)}
+                              </span>
+                              <div>
+                                <strong>
+                                  {presenterFor(data.state, s)?.name}
+                                </strong>
+                                <p>
+                                  {s.helpNote ||
+                                    'This presenter needs help finding a time.'}
+                                </p>
+                                <small>{s.track}</small>
+                              </div>
+                              <ChevronRight size={17} />
+                            </button>
+                          ))
+                        ) : (
+                          <div className="calm-empty">
+                            <CheckCircle2 size={32} />
+                            <h3>You’re all caught up.</h3>
+                            <p>
+                              Presenter requests will appear here when someone
+                              needs a hand.
+                            </p>
+                          </div>
+                        )}
+                        <div className="soft-note">
+                          <LifeBuoy size={17} />
+                          <p>
+                            Help requests preserve the presenter’s existing
+                            booking.
+                          </p>
+                        </div>
+                      </section>
+                    </div>
+                    <section className="surface">
+                      <div className="section-title">
+                        <h2>Recent activity</h2>
+                        <span className="muted">Latest updates</span>
+                      </div>
+                      {data.state.log.length ? (
+                        <div className="activity-list">
+                          {data.state.log.slice(0, 6).map((entry) => (
+                            <div key={entry.id}>
+                              <span className="activity-icon">
+                                <Clock3 size={15} />
+                              </span>
+                              <div>
+                                <p>{entry.message}</p>
+                                <span>{entry.actor}</span>
+                              </div>
+                              <time dateTime={entry.time}>
+                                {new Date(entry.time).toLocaleString('en-US', {
+                                  month: 'short',
+                                  day: 'numeric',
+                                  hour: 'numeric',
+                                  minute: '2-digit',
+                                  timeZone: 'America/Los_Angeles',
+                                })}{' '}
+                                PT
+                              </time>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <Empty
+                          title="Your program starts here"
+                          text="Add your first accepted submission and create a track block to open scheduling."
+                          action={
+                            <div className="button-row">
+                              <Button onClick={() => openModal('submission')}>
+                                <Plus size={16} />
+                                Add submission
+                              </Button>
+                              <Button
+                                variant="outline"
+                                onClick={() => openModal('sample')}
+                              >
+                                Load sample conference
+                              </Button>
+                            </div>
+                          }
+                        />
+                      )}
+                    </section>
+                  </>
+                )}
+                {view === 'submissions' && (
+                  <section className="surface table-surface">
+                    <Filters
+                      search={search}
+                      setSearch={setSearch}
+                      status={status}
+                      setStatus={setStatus}
+                      track={trackFilter}
+                      setTrack={setTrackFilter}
+                    />
+                    <div className="table-summary">
+                      {visible.length} submission
+                      {visible.length === 1 ? '' : 's'}
+                      <span>
+                        Keys are private · Share only with the assigned
+                        presenter
+                      </span>
+                    </div>
+                    {visible.length ? (
+                      <div className="table-scroll">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Submission / presenter</th>
+                              <th>Track & format</th>
+                              <th>Status</th>
+                              <th>Presenter access</th>
+                              <th>
+                                <span className="sr-only">Actions</span>
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {visible.map((s) => (
+                              <tr key={s.id}>
+                                <td>
+                                  <button
+                                    className="table-title"
+                                    onClick={() =>
+                                      openModal('submission', s.id)
+                                    }
+                                  >
+                                    {s.title}
+                                  </button>
+                                  <span className="table-sub">
+                                    {presenterFor(data.state, s)?.name} ·{' '}
+                                    {presenterFor(data.state, s)?.institution}
+                                  </span>
+                                </td>
+                                <td>
+                                  <span>{s.track}</span>
+                                  <span className="table-sub">
+                                    {s.type} · {s.durationMinutes} min
+                                  </span>
+                                </td>
+                                <td>
+                                  <Status submission={s} />
+                                  {s.locked && (
+                                    <span className="table-sub">
+                                      <LockKeyhole size={12} /> Locked
+                                    </span>
+                                  )}
+                                </td>
+                                <td>
+                                  <CopyKey value={s.key} />
+                                </td>
+                                <td aria-label="Submission actions">
+                                  <div className="row-actions">
+                                    <IconButton
+                                      label={`Edit ${s.title}`}
+                                      onClick={() =>
+                                        openModal('submission', s.id)
+                                      }
+                                    >
+                                      <Pencil size={16} />
+                                    </IconButton>
+                                    <IconButton
+                                      label={`${s.locked ? 'Unlock' : 'Lock'} ${s.title}`}
+                                      disabled={busy}
+                                      onClick={() =>
+                                        act(
+                                          { kind: 'lock-submission', id: s.id },
+                                          'Booking lock updated.',
+                                        )
+                                      }
+                                    >
+                                      {s.locked ? (
+                                        <Unlock size={16} />
+                                      ) : (
+                                        <LockKeyhole size={16} />
+                                      )}
+                                    </IconButton>
+                                    <IconButton
+                                      label={`Delete ${s.title}`}
+                                      onClick={() =>
+                                        openModal('delete-submission', s.id)
+                                      }
+                                    >
+                                      <Trash2 size={16} />
+                                    </IconButton>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <Empty
+                        icon={<FileText />}
+                        title={
+                          data.state.submissions.length
+                            ? 'No matching submissions'
+                            : 'Add your first accepted submission'
+                        }
+                        text={
+                          data.state.submissions.length
+                            ? 'Try a different search or clear your filters.'
+                            : 'Each submission gets a private presenter key for self-scheduling.'
+                        }
+                        action={
+                          data.state.submissions.length ? (
+                            <Button
+                              variant="outline"
+                              onClick={() => {
+                                setSearch('');
+                                setStatus('all');
+                                setTrackFilter('all');
+                              }}
+                            >
+                              Clear filters
+                            </Button>
+                          ) : (
+                            <Button onClick={() => openModal('submission')}>
+                              <Plus size={16} />
+                              Add submission
+                            </Button>
+                          )
+                        }
+                      />
+                    )}
+                  </section>
+                )}
+                {view === 'blocks' && (
+                  <>
+                    <div className="soft-note">
+                      <Layers3 size={18} />
+                      <p>
+                        Presenters can book slots only in matching tracks and
+                        formats. Block changes must preserve existing bookings;
+                        rooms cannot overlap.
+                      </p>
+                    </div>
+                    {data.state.blocks.length ? (
+                      <div className="organizer-blocks">
+                        {data.state.blocks.map((b, i) => {
+                          const used = data.state.submissions.filter((s) =>
+                            s.assignedPeriodId?.startsWith(`${b.id}__`),
+                          ).length;
+                          const total =
+                            makePeriods(b).length * b.capacityPerPeriod;
+                          return (
+                            <section
+                              key={b.id}
+                              className="surface organizer-block"
+                            >
+                              <div className="block-order">
+                                <span>{String(i + 1).padStart(2, '0')}</span>
+                                <div>
+                                  <IconButton
+                                    label={`Move ${b.title} up`}
+                                    disabled={i === 0 || busy}
+                                    onClick={() =>
+                                      act(
+                                        {
+                                          kind: 'move-block',
+                                          id: b.id,
+                                          direction: -1,
+                                        },
+                                        'Block order updated.',
+                                      )
+                                    }
+                                  >
+                                    <ArrowUp size={15} />
+                                  </IconButton>
+                                  <IconButton
+                                    label={`Move ${b.title} down`}
+                                    disabled={
+                                      i === data.state.blocks.length - 1 || busy
+                                    }
+                                    onClick={() =>
+                                      act(
+                                        {
+                                          kind: 'move-block',
+                                          id: b.id,
+                                          direction: 1,
+                                        },
+                                        'Block order updated.',
+                                      )
+                                    }
+                                  >
+                                    <ArrowDown size={15} />
+                                  </IconButton>
+                                </div>
+                              </div>
+                              <div className="block-body">
+                                <div className="tags">
+                                  <span className="track-chip">{b.track}</span>
+                                  <span className="neutral-chip">{b.type}</span>
+                                  {b.locked && (
+                                    <span className="neutral-chip">
+                                      <LockKeyhole size={12} />
+                                      Closed
+                                    </span>
+                                  )}
+                                </div>
+                                <h2>{b.title}</h2>
+                                <div className="block-facts">
+                                  <span>
+                                    <CalendarDays size={15} />
+                                    {formatDate(b.date)}
+                                  </span>
+                                  <span>
+                                    <Clock3 size={15} />
+                                    {timeLabel(b.start)}–{timeLabel(b.end)} PT
+                                  </span>
+                                  <span>
+                                    <MapPin size={15} />
+                                    {b.room}
+                                  </span>
+                                </div>
+                                <p className="muted">
+                                  {b.presentationMinutes} min per slot ·{' '}
+                                  {b.capacityPerPeriod} spot
+                                  {b.capacityPerPeriod === 1 ? '' : 's'} per
+                                  time · {b.chair || 'No chair assigned'}
+                                </p>
+                              </div>
+                              <div className="block-capacity">
+                                <strong>
+                                  {used}
+                                  <span> / {total}</span>
+                                </strong>
+                                <span>spots booked</span>
+                                <div className="mini-progress">
+                                  <span
+                                    style={{
+                                      width: `${total ? (used / total) * 100 : 0}%`,
+                                    }}
+                                  />
+                                </div>
+                                <div className="button-row">
+                                  <Button
+                                    variant="outline"
+                                    onClick={() => openModal('block', b.id)}
+                                  >
+                                    <Pencil size={15} />
+                                    Edit
+                                  </Button>
+                                  <IconButton
+                                    label={`Delete ${b.title}`}
+                                    onClick={() =>
+                                      openModal('delete-block', b.id)
+                                    }
+                                  >
+                                    <Trash2 size={16} />
+                                  </IconButton>
+                                </div>
+                              </div>
+                            </section>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <Empty
+                        icon={<Layers3 />}
+                        title="Build your conference sessions"
+                        text="Create a block with a track, format, room, and time range. Available slots are generated automatically."
+                        action={
+                          <Button onClick={() => openModal('block')}>
+                            <Plus size={16} />
+                            Create a block
+                          </Button>
+                        }
+                      />
+                    )}
+                  </>
+                )}
+                {view === 'schedule' && (
+                  <>
+                    <div className="schedule-toolbar">
+                      <div
+                        className="day-tabs"
+                        aria-label="Filter schedule date"
+                      >
+                        <button
+                          className={calendarDay === 'all' ? 'active' : ''}
+                          onClick={() => setCalendarDay('all')}
+                        >
+                          All dates
+                        </button>
+                        {Array.from(
+                          new Set(data.state.blocks.map((b) => b.date)),
+                        )
+                          .sort()
+                          .map((date) => (
+                            <button
+                              key={date}
+                              className={calendarDay === date ? 'active' : ''}
+                              onClick={() => setCalendarDay(date)}
+                            >
+                              {formatDate(date)}
+                            </button>
+                          ))}
+                      </div>
+                      <span className="timezone-pill">
+                        <Clock3 size={14} />
+                        Pacific Time
+                      </span>
+                    </div>
+                    <section className="surface table-surface">
+                      <Filters
+                        search={search}
+                        setSearch={setSearch}
+                        status={status}
+                        setStatus={setStatus}
+                        track={trackFilter}
+                        setTrack={setTrackFilter}
+                      />
+                      {visible.filter(
+                        (s) =>
+                          calendarDay === 'all' ||
+                          data.state.blocks.some(
+                            (b) =>
+                              b.date === calendarDay &&
+                              s.assignedPeriodId?.startsWith(`${b.id}__`),
+                          ),
+                      ).length ? (
+                        <div className="schedule-list">
+                          {visible
+                            .filter(
+                              (s) =>
+                                calendarDay === 'all' ||
+                                data.state.blocks.some(
+                                  (b) =>
+                                    b.date === calendarDay &&
+                                    s.assignedPeriodId?.startsWith(`${b.id}__`),
+                                ),
+                            )
+                            .sort((a, b) =>
+                              periodLabel(
+                                data.state,
+                                a.assignedPeriodId,
+                              ).localeCompare(
+                                periodLabel(data.state, b.assignedPeriodId),
+                              ),
+                            )
+                            .map((s) => {
+                              const b = data.state.blocks.find((b) =>
+                                s.assignedPeriodId?.startsWith(`${b.id}__`),
+                              );
+                              const p =
+                                b &&
+                                makePeriods(b).find(
+                                  (p) => p.id === s.assignedPeriodId,
+                                );
+                              return (
+                                <article key={s.id} className="schedule-row">
+                                  <div className="schedule-time">
+                                    <strong>
+                                      {p ? timeLabel(p.start) : 'Unscheduled'}
+                                    </strong>
+                                    <span>
+                                      {b
+                                        ? formatDate(b.date)
+                                        : 'Awaiting booking'}
+                                    </span>
+                                  </div>
+                                  <div className="schedule-info">
+                                    <button
+                                      className="table-title"
+                                      onClick={() =>
+                                        openModal('submission', s.id)
+                                      }
+                                    >
+                                      {s.title}
+                                    </button>
+                                    <p>
+                                      {presenterFor(data.state, s)?.name} ·{' '}
+                                      {s.track}
+                                    </p>
+                                    <span>
+                                      {s.type} · {s.durationMinutes} min
+                                      {b && <> · {b.room}</>}
+                                    </span>
+                                  </div>
+                                  <Status submission={s} />
+                                  {s.assignedPeriodId && (
+                                    <IconButton
+                                      label={`Cancel booking for ${s.title}`}
+                                      onClick={() => openModal('cancel', s.id)}
+                                    >
+                                      <X size={16} />
+                                    </IconButton>
+                                  )}
+                                </article>
+                              );
+                            })}
+                        </div>
+                      ) : (
+                        <Empty
+                          icon={<CalendarDays />}
+                          title="No presentations in this view"
+                          text="Try another date or adjust your filters."
+                        />
+                      )}
+                    </section>
+                  </>
+                )}
+              </>
+            )}
+            <footer className="workspace-footer">
+              <span>URTC 2027 Scheduling Portal</span>
+              <span>
+                <ShieldCheck size={13} />
+                Shared conference schedule · Pacific Time
+              </span>
+            </footer>
+          </main>
+        </div>
+      )}
+      {modal && (
+        <Modal
+          title={
+            modal.type === 'submission'
+              ? modal.id
+                ? 'Edit submission'
+                : 'Add accepted submission'
+              : modal.type === 'block'
+                ? modal.id
+                  ? 'Edit track block'
+                  : 'Create track block'
+                : modal.type === 'sample'
+                  ? 'Load a sample conference?'
+                  : modal.type === 'cancel'
+                    ? 'Cancel this booking?'
+                    : modal.type === 'delete-block'
+                      ? 'Delete this block?'
+                      : 'Delete this submission?'
+          }
+          onClose={() => !busy && setModal(null)}
+          busy={busy}
+        >
+          {formError && (
+            <div className="notice notice-error" role="alert">
+              <AlertCircle size={18} />
+              {formError}
+            </div>
+          )}
+          {modal.type === 'submission' ? (
+            <SubmissionForm
+              submission={data.state.submissions.find((s) => s.id === modal.id)}
+              presenter={presenterFor(
+                data.state,
+                data.state.submissions.find((s) => s.id === modal.id) ?? null,
+              )}
+              busy={busy}
+              onCancel={() => setModal(null)}
+              onSave={(values) =>
+                act(
+                  { kind: 'save-submission', id: modal.id, data: values },
+                  'Submission saved. Its private presenter key is ready to copy.',
+                  true,
+                )
+              }
+            />
+          ) : modal.type === 'block' ? (
+            <BlockForm
+              block={data.state.blocks.find((b) => b.id === modal.id)}
+              busy={busy}
+              onCancel={() => setModal(null)}
+              onSave={(values) =>
+                act(
+                  { kind: 'save-block', id: modal.id, data: values },
+                  'Track block saved. Presenter availability is updated.',
+                  true,
+                )
+              }
+            />
+          ) : (
+            <>
+              <p className="modal-description">
+                {modal.type === 'sample'
+                  ? 'This adds four sample submissions and six track blocks from the original portal. Use these for a walkthrough, then remove sample records before accepting real bookings.'
+                  : modal.type === 'cancel'
+                    ? 'This releases the reserved time. The submission remains accepted, and the presenter can choose another available slot.'
+                    : modal.type === 'delete-block'
+                      ? 'This removes the block and its available slots. Blocks with confirmed bookings cannot be deleted.'
+                      : `This permanently removes “${data.state.submissions.find((s) => s.id === modal.id)?.title}” and releases its booking. Its presenter key will stop working.`}
+              </p>
+              <div className="modal-actions">
+                <Button
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => setModal(null)}
+                >
+                  Keep{' '}
+                  {modal.type === 'cancel'
+                    ? 'booking'
+                    : modal.type === 'sample'
+                      ? 'empty conference'
+                      : 'record'}
+                </Button>
+                <Button
+                  className={
+                    modal.type !== 'sample' ? 'destructive-button' : ''
+                  }
+                  disabled={busy}
+                  onClick={async () => {
+                    if (
+                      await act(
+                        {
+                          kind:
+                            modal.type === 'sample'
+                              ? 'sample-data'
+                              : modal.type,
+                          id: modal.id,
+                        },
+                        modal.type === 'sample'
+                          ? 'Sample conference loaded.'
+                          : modal.type === 'cancel'
+                            ? 'Booking cancelled.'
+                            : 'Record deleted.',
+                        true,
+                      )
+                    ) {
+                      if (modal.type === 'cancel' && role === 'presenter')
+                        setStep(2);
+                    }
+                  }}
+                >
+                  {busy ? (
+                    <Loader2 className="spin" />
+                  ) : modal.type === 'sample' ? (
+                    'Load sample conference'
+                  ) : modal.type === 'cancel' ? (
+                    'Cancel booking'
+                  ) : (
+                    'Delete record'
+                  )}
                 </Button>
               </div>
-            </div>
-            <div className="mt-4 overflow-x-auto">
-              <table className="w-full min-w-[880px] text-left text-sm">
-                <thead className="border-b border-border text-xs uppercase text-muted-foreground">
-                  <tr>
-                    <th className="py-3 pr-4">Key</th>
-                    <th className="py-3 pr-4">Submission</th>
-                    <th className="py-3 pr-4">Presenter</th>
-                    <th className="py-3 pr-4">Track</th>
-                    <th className="py-3 pr-4">Booking</th>
-                    <th className="py-3 pr-4">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {props.filteredSubmissions.map((submission) => {
-                    const presenter = presenterFor(props.state, submission);
-                    return (
-                      <tr key={submission.id}>
-                        <td className="py-3 pr-4 font-mono text-xs">{submission.key}</td>
-                        <td className="py-3 pr-4">
-                          <p className="font-medium">{submission.title}</p>
-                          <p className="text-xs text-muted-foreground">{submission.type}</p>
-                        </td>
-                        <td className="py-3 pr-4">
-                          <p>{presenter?.name}</p>
-                          <p className="text-xs text-muted-foreground">{presenter?.institution}</p>
-                        </td>
-                        <td className="py-3 pr-4">{submission.track}</td>
-                        <td className="py-3 pr-4">{periodLabel(props.state, submission.assignedPeriodId)}</td>
-                        <td className="py-3 pr-4"><Status status={submission.status} /></td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </Panel>
-        ) : null}
-      </div>
+            </>
+          )}
+        </Modal>
+      )}
     </div>
   );
 }
 
-function Panel({
+function Field({
+  label,
   children,
-  className = '',
+  hint,
 }: {
-  children: React.ReactNode;
-  className?: string;
+  label: string;
+  children: ReactNode;
+  hint?: string;
 }) {
   return (
-    <section className={`rounded-lg border border-white/70 bg-card/90 p-4 shadow-[0_24px_70px_rgb(15_23_42/10%)] backdrop-blur sm:p-5 ${className}`}>
+    <label className="field">
+      <span>{label}</span>
       {children}
-    </section>
+      {hint && <small>{hint}</small>}
+    </label>
   );
 }
-
-function PanelTitle({ children, icon }: { children: React.ReactNode; icon: React.ReactNode }) {
+function Status({ submission: s }: { submission: Submission }) {
   return (
-    <h2 className="flex items-center gap-2 text-base font-semibold">
-      <span className="[&_svg]:size-4 [&_svg]:text-primary">{icon}</span>
+    <span
+      className={`status status-${s.status === 'needs help' ? 'help' : s.assignedPeriodId ? 'booked' : 'pending'}`}
+    >
+      {s.status === 'needs help' ? (
+        <AlertCircle size={12} />
+      ) : s.assignedPeriodId ? (
+        <CheckCircle2 size={12} />
+      ) : (
+        <Clock3 size={12} />
+      )}{' '}
+      {s.status === 'needs help'
+        ? 'Needs attention'
+        : s.assignedPeriodId
+          ? 'Confirmed'
+          : 'Unscheduled'}
+    </span>
+  );
+}
+function IconButton({
+  label,
+  onClick,
+  children,
+  disabled = false,
+}: {
+  label: string;
+  onClick: () => void;
+  children: ReactNode;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className="icon-button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      disabled={disabled}
+    >
       {children}
-    </h2>
+    </button>
   );
 }
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-border bg-background p-3">
-      <p className="text-xs uppercase text-muted-foreground">{label}</p>
-      <p className="mt-1 text-sm font-semibold">{value}</p>
-    </div>
-  );
-}
-
 function Metric({
   label,
   value,
   icon,
-  help,
+  detail,
+  tone = 'blue',
 }: {
   label: string;
-  value: string;
-  icon: React.ReactNode;
-  help?: string;
+  value: number;
+  icon: ReactNode;
+  detail: string;
+  tone?: string;
 }) {
   return (
-    <div className="rounded-lg border border-border bg-card p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">{label}</p>
-        <span className="[&_svg]:size-4 [&_svg]:text-primary">{icon}</span>
+    <section className="metric">
+      <div>
+        <span>{label}</span>
+        <span className={`metric-icon ${tone}`}>{icon}</span>
       </div>
-      <p className="mt-2 text-2xl font-semibold">{value}</p>
-      {help ? <p className="mt-2 text-xs leading-5 text-muted-foreground">{help}</p> : null}
+      <strong>{value.toString().padStart(2, '0')}</strong>
+      <p>{detail}</p>
+    </section>
+  );
+}
+function Empty({
+  icon,
+  title,
+  text,
+  action,
+}: {
+  icon?: ReactNode;
+  title: string;
+  text: string;
+  action?: ReactNode;
+}) {
+  return (
+    <section className="empty-state">
+      {icon && <span className="large-icon">{icon}</span>}
+      <h2>{title}</h2>
+      <p>{text}</p>
+      {action}
+    </section>
+  );
+}
+function CopyKey({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false),
+    [error, setError] = useState(false);
+  return (
+    <div>
+      <button
+        className="copy-key"
+        title="Copy private presenter key"
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(value);
+            setCopied(true);
+            setError(false);
+            setTimeout(() => setCopied(false), 2500);
+          } catch {
+            setError(true);
+          }
+        }}
+      >
+        {copied ? <Check size={14} /> : <Copy size={14} />}{' '}
+        {copied ? 'Copied!' : 'Copy key'}
+      </button>
+      {error && (
+        <input
+          aria-label="Select and copy presenter key"
+          readOnly
+          value={value}
+          onFocus={(e) => e.target.select()}
+        />
+      )}
     </div>
   );
 }
-
-function Info({ title, text }: { title: string; text: string }) {
+function Filters(p: {
+  search: string;
+  setSearch: (v: string) => void;
+  status: string;
+  setStatus: (v: string) => void;
+  track: string;
+  setTrack: (v: string) => void;
+}) {
   return (
-    <div className="rounded-lg border border-border bg-background p-4">
-      <p className="font-medium">{title}</p>
-      <p className="mt-2 text-sm leading-6 text-muted-foreground">{text}</p>
+    <div className="filters">
+      <div className="search-input">
+        <Search size={17} />
+        <Input
+          aria-label="Search submissions"
+          placeholder="Search research, presenter, or key…"
+          value={p.search}
+          onChange={(e) => p.setSearch(e.target.value)}
+        />
+      </div>
+      <NativeSelect
+        aria-label="Filter by track"
+        value={p.track}
+        onChange={(e) => p.setTrack(e.target.value)}
+      >
+        <option value="all">All tracks</option>
+        {tracks.map((t) => (
+          <option key={t}>{t}</option>
+        ))}
+      </NativeSelect>
+      <NativeSelect
+        aria-label="Filter by status"
+        value={p.status}
+        onChange={(e) => p.setStatus(e.target.value)}
+      >
+        <option value="all">All statuses</option>
+        <option value="scheduled">Confirmed</option>
+        <option value="unscheduled">Unscheduled</option>
+        <option value="needs help">Needs attention</option>
+      </NativeSelect>
     </div>
   );
 }
-
-function Status({ status }: { status: Submission['status'] }) {
-  if (status === 'scheduled') return <Badge className="bg-emerald-600 text-white">Scheduled</Badge>;
-  if (status === 'needs help') return <Badge className="bg-amber-500 text-amber-950">Needs help</Badge>;
-  return <Badge variant="outline">Unscheduled</Badge>;
-}
-
-function EmptyState({ text }: { text: string }) {
+function Modal({
+  title,
+  children,
+  onClose,
+  busy,
+}: {
+  title: string;
+  children: ReactNode;
+  onClose: () => void;
+  busy: boolean;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const d = ref.current;
+    d?.showModal();
+    return () => d?.close();
+  }, []);
   return (
-    <div className="rounded-lg border border-dashed border-border bg-background p-8 text-center text-sm text-muted-foreground">
-      {text}
-    </div>
+    <dialog
+      ref={ref}
+      className="modal"
+      onCancel={(e) => {
+        e.preventDefault();
+        if (!busy) onClose();
+      }}
+      aria-labelledby="modal-title"
+    >
+      <div className="modal-heading">
+        <h2 id="modal-title">{title}</h2>
+        <IconButton label="Close dialog" disabled={busy} onClick={onClose}>
+          <X size={21} />
+        </IconButton>
+      </div>
+      {children}
+    </dialog>
+  );
+}
+function SubmissionForm({
+  submission: s,
+  presenter: p,
+  busy,
+  onSave,
+  onCancel,
+}: {
+  submission?: Submission;
+  presenter: Presenter | null;
+  busy: boolean;
+  onSave: (data: Record<string, unknown>) => Promise<boolean>;
+  onCancel: () => void;
+}) {
+  const [type, setType] = useState<Submission['type']>(s?.type ?? 'Paper'),
+    [duration, setDuration] = useState(s?.durationMinutes ?? 8);
+  return (
+    <form
+      className="form-stack"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const values = Object.fromEntries(new FormData(e.currentTarget));
+        void onSave({ ...values, type, durationMinutes: duration });
+      }}
+    >
+      {s?.helpNote && (
+        <div className="soft-note">
+          <LifeBuoy size={18} />
+          <p>
+            <strong>Presenter request</strong>
+            <br />
+            {s.helpNote}
+          </p>
+        </div>
+      )}
+      <Field label="Presentation title">
+        <Input name="title" defaultValue={s?.title} required maxLength={400} />
+      </Field>
+      <div className="form-columns">
+        <Field label="Presenter name">
+          <Input name="name" defaultValue={p?.name} required maxLength={150} />
+        </Field>
+        <Field label="Email address">
+          <Input
+            name="email"
+            type="email"
+            defaultValue={p?.email}
+            required
+            maxLength={254}
+          />
+        </Field>
+      </div>
+      <Field label="Institution">
+        <Input
+          name="institution"
+          defaultValue={p?.institution}
+          required
+          maxLength={200}
+        />
+      </Field>
+      <div className="form-columns">
+        <Field label="Track">
+          <NativeSelect name="track" defaultValue={s?.track ?? tracks[0]}>
+            {tracks.map((t) => (
+              <option key={t}>{t}</option>
+            ))}
+          </NativeSelect>
+        </Field>
+        <Field label="Format">
+          <NativeSelect
+            value={type}
+            onChange={(e) => {
+              const t = e.target.value as Submission['type'];
+              setType(t);
+              setDuration(typeDurations[t]);
+            }}
+          >
+            {Object.keys(typeDurations).map((t) => (
+              <option key={t}>{t}</option>
+            ))}
+          </NativeSelect>
+        </Field>
+      </div>
+      <Field label="Presentation duration (minutes)">
+        <Input
+          type="number"
+          min={1}
+          max={240}
+          required
+          value={duration}
+          onChange={(e) => setDuration(Number(e.target.value))}
+        />
+      </Field>
+      <Field label="Coauthors (optional)">
+        <Input name="coauthors" defaultValue={s?.coauthors} maxLength={1000} />
+      </Field>
+      <Field label="Abstract (optional)">
+        <Textarea
+          name="abstract"
+          defaultValue={s?.abstract}
+          maxLength={6000}
+          rows={3}
+        />
+      </Field>
+      <Field label="AV requirements (optional)">
+        <Input name="avNeeds" defaultValue={s?.avNeeds} maxLength={1000} />
+      </Field>
+      <div className="modal-actions">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onCancel}
+          disabled={busy}
+        >
+          Cancel
+        </Button>
+        <Button type="submit" disabled={busy}>
+          {busy ? (
+            <Loader2 className="spin" />
+          ) : s ? (
+            'Save changes'
+          ) : (
+            'Add submission'
+          )}
+        </Button>
+      </div>
+    </form>
+  );
+}
+function BlockForm({
+  block: b,
+  busy,
+  onSave,
+  onCancel,
+}: {
+  block?: Block;
+  busy: boolean;
+  onSave: (data: Record<string, unknown>) => Promise<boolean>;
+  onCancel: () => void;
+}) {
+  return (
+    <form
+      className="form-stack"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const v = Object.fromEntries(new FormData(e.currentTarget));
+        void onSave({
+          ...v,
+          presentationMinutes: Number(v.presentationMinutes),
+          capacityPerPeriod: Number(v.capacityPerPeriod),
+          locked: v.locked === 'on',
+        });
+      }}
+    >
+      <Field label="Block title">
+        <Input
+          name="title"
+          defaultValue={b?.title}
+          placeholder="e.g. AI and Systems — Session 1"
+          required
+          maxLength={300}
+        />
+      </Field>
+      <div className="form-columns">
+        <Field label="Track">
+          <NativeSelect name="track" defaultValue={b?.track ?? tracks[0]}>
+            {tracks.map((t) => (
+              <option key={t}>{t}</option>
+            ))}
+          </NativeSelect>
+        </Field>
+        <Field label="Presentation format">
+          <NativeSelect name="type" defaultValue={b?.type ?? 'Paper'}>
+            {Object.keys(typeDurations).map((t) => (
+              <option key={t}>{t}</option>
+            ))}
+          </NativeSelect>
+        </Field>
+      </div>
+      <Field label="Date">
+        <Input
+          type="date"
+          name="date"
+          required
+          defaultValue={b?.date ?? '2027-05-15'}
+        />
+      </Field>
+      <div className="form-columns">
+        <Field label="Start time (Pacific)">
+          <Input
+            type="time"
+            name="start"
+            required
+            defaultValue={b?.start ?? '10:00'}
+          />
+        </Field>
+        <Field label="End time (Pacific)">
+          <Input
+            type="time"
+            name="end"
+            required
+            defaultValue={b?.end ?? '10:48'}
+          />
+        </Field>
+      </div>
+      <Field label="Room / location">
+        <Input
+          name="room"
+          required
+          defaultValue={b?.room}
+          placeholder="e.g. Packard 101"
+          maxLength={150}
+        />
+      </Field>
+      <div className="form-columns">
+        <Field
+          label="Slot length (minutes)"
+          hint="Must fit the accepted presentation duration."
+        >
+          <Input
+            name="presentationMinutes"
+            type="number"
+            min={1}
+            max={240}
+            required
+            defaultValue={b?.presentationMinutes ?? 8}
+          />
+        </Field>
+        <Field
+          label="Spots at each start time"
+          hint="Use more than one for concurrent posters."
+        >
+          <Input
+            name="capacityPerPeriod"
+            type="number"
+            min={1}
+            max={100}
+            required
+            defaultValue={b?.capacityPerPeriod ?? 1}
+          />
+        </Field>
+      </div>
+      <Field label="Session chair (optional)">
+        <Input name="chair" defaultValue={b?.chair} maxLength={150} />
+      </Field>
+      <label className="checkbox-label">
+        <input type="checkbox" name="locked" defaultChecked={b?.locked} />
+        <span>Close this block to new bookings</span>
+      </label>
+      <div className="soft-note">
+        <ShieldCheck size={17} />
+        <p>
+          Changes that invalidate confirmed bookings or overlap another block in
+          this room will be rejected.
+        </p>
+      </div>
+      <div className="modal-actions">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onCancel}
+          disabled={busy}
+        >
+          Cancel
+        </Button>
+        <Button disabled={busy} type="submit">
+          {busy ? (
+            <Loader2 className="spin" />
+          ) : b ? (
+            'Save block'
+          ) : (
+            'Create block'
+          )}
+        </Button>
+      </div>
+    </form>
   );
 }

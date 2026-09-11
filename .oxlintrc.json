@@ -29,7 +29,11 @@
     "build/**",
     "dist/**",
     "coverage/**",
-    "next-env.d.ts"
+    "next-env.d.ts",
+    "work/**",
+    "app/page 2.tsx",
+    "components/ui/**",
+    "hooks/**"
   ],
   "rules": {
     "no-array-constructor": "error",
