@@ -9,35 +9,19 @@ export const supabaseKey =
 export const backendConfigured = Boolean(supabaseUrl && supabaseKey);
 export const DEMO_KEY = 'URTC-DEMO-2027';
 const sessionKey = 'urtc-supabase-presenter-session';
-let clientPromise:
-  | Promise<import('@supabase/supabase-js').SupabaseClient>
-  | undefined;
-export function authClient() {
-  if (!backendConfigured)
-    throw new Error(
-      'The shared conference backend is not connected yet. The presenter demo is available.',
-    );
-  clientPromise ??= import('@supabase/supabase-js').then(({ createClient }) =>
-    createClient(supabaseUrl, supabaseKey, {
-      auth: { detectSessionInUrl: true, flowType: 'implicit' },
-    }),
-  );
-  return clientPromise;
-}
-export async function sendOrganizerLink(email: string) {
-  const client = await authClient();
-  const redirect = new URL(window.location.pathname, window.location.origin);
-  redirect.searchParams.set('role', 'organizer');
-  const { error } = await client.auth.signInWithOtp({
-    email: email.trim(),
-    options: { emailRedirectTo: redirect.toString() },
+const organizerKey = 'urtc-organizer-email-entry';
+// Temporary allowlist gate requested for the current review. This does not verify identity.
+export async function organizerSignIn(email: string) {
+  const normalized = email.trim().toLowerCase();
+  const result = await portalApi({
+    kind: 'organizer-login',
+    email: normalized,
   });
-  if (error) throw error;
+  sessionStorage.setItem(organizerKey, normalized);
+  return result;
 }
 export async function organizerSignOut() {
-  const client = await authClient();
-  const { error } = await client.auth.signOut();
-  if (error) throw error;
+  sessionStorage.removeItem(organizerKey);
 }
 export function demoActive() {
   return (
@@ -77,14 +61,6 @@ export async function portalApi(
       occupancy: {},
     };
   }
-  let token: string | undefined;
-  if (pagesBuild) {
-    const client = await authClient();
-    const {
-      data: { session },
-    } = await client.auth.getSession();
-    token = session?.access_token;
-  }
   const response = await fetch(
     pagesBuild ? `${supabaseUrl}/functions/v1/portal` : '/api/portal',
     {
@@ -95,7 +71,12 @@ export async function portalApi(
           ? {
               apikey: supabaseKey,
               'X-Presenter-Session': sessionStorage.getItem(sessionKey) ?? '',
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              'X-Organizer-Email':
+                action?.kind === 'organizer-login'
+                  ? typeof action.email === 'string'
+                    ? action.email
+                    : ''
+                  : (sessionStorage.getItem(organizerKey) ?? ''),
             }
           : {}),
       },

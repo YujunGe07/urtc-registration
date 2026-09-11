@@ -66,7 +66,7 @@ import {
   portalApi as api,
   pagesBuild,
   backendConfigured,
-  sendOrganizerLink,
+  organizerSignIn,
   organizerSignOut,
   DEMO_KEY,
   demoActive,
@@ -228,7 +228,6 @@ export default function Home() {
     [note, setNote] = useState('');
   const [calendarDay, setCalendarDay] = useState('all');
   const [organizerEmail, setOrganizerEmail] = useState('');
-  const [emailSent, setEmailSent] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     const sync = () => {
@@ -722,7 +721,7 @@ export default function Home() {
                         ? 'The shared conference is being connected. Presenter demo access is available now; real organizer sign-in will open after setup.'
                         : data.signedIn
                           ? `${data.email} is not an approved organizer. Please switch to your invited email address.`
-                          : 'Use your approved email address. We’ll send a secure sign-in link to your inbox.'}
+                          : 'Enter your approved email address to open the organizer workspace. No confirmation email is required.'}
                     </p>
                     {backendConfigured &&
                       (data.signedIn ? (
@@ -741,8 +740,9 @@ export default function Home() {
                             e.preventDefault();
                             setBusy(true);
                             try {
-                              await sendOrganizerLink(organizerEmail);
-                              setEmailSent(true);
+                              const result =
+                                await organizerSignIn(organizerEmail);
+                              setData(result);
                               setNotice(null);
                             } catch (error) {
                               setNotice({
@@ -770,15 +770,14 @@ export default function Home() {
                             {busy ? (
                               <Loader2 className="spin" />
                             ) : (
-                              'Email me a sign-in link'
+                              'Open organizer workspace'
                             )}
                           </Button>
-                          {emailSent && (
-                            <output className="muted">
-                              Check your inbox for a sign-in link. Open it in
-                              this browser to continue.
-                            </output>
-                          )}
+                          <p className="muted">
+                            Temporary email-only access: anyone who knows an
+                            approved address can enter. Email ownership is not
+                            verified.
+                          </p>
                         </form>
                       ))}
                   </>

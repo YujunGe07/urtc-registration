@@ -5,7 +5,7 @@ A conference scheduling application built on the existing React / Vinext portal,
 ## Workflows
 
 - Presenter: private key → review and save contact details → select a compatible time → explicitly confirm → download a calendar event. Returning sessions retain the booking. Rescheduling is atomic; help requests preserve existing bookings.
-- Organizer: sign in using a verified email link from Supabase → add accepted submissions → copy each presenter’s key → create/reorder/edit track blocks → review bookings or export CSV. Submission and block deletion require a confirmation. Booked blocks cannot be deleted.
+- Organizer: enter an approved organizer email address (temporary review mode) → add accepted submissions → copy each presenter’s key → create/reorder/edit track blocks → review bookings or export CSV. Submission and block deletion require a confirmation. Booked blocks cannot be deleted.
 - New databases start empty. The organizer overview can explicitly load the original four sample submissions and six blocks into an empty conference. Sample keys are regenerated securely. Remove sample submissions and blocks before live intake.
 
 ## GitHub Pages + Supabase
@@ -20,7 +20,7 @@ Repository Actions variables (public browser configuration):
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_PUBLISHABLE_KEY`
 
-Supabase project: `rhnbdeowhxtjgzkhoczh`. Apply `supabase/migrations/202609110001_urtc_portal.sql` once. It creates an empty conference, private RLS-protected tables, an atomic login-attempt counter, and the initial organizer allowlist (`geyujunamy@gmail.com`, `gwan@vicr.com`). Browser roles cannot access these tables directly. The API validates verified Supabase identities and presenter sessions before reading or changing records.
+Supabase project: `rhnbdeowhxtjgzkhoczh`. Apply `supabase/migrations/202609110001_urtc_portal.sql` once. It creates an empty conference, private RLS-protected tables, an atomic login-attempt counter, and the initial organizer allowlist (`geyujunamy@gmail.com`, `gwan@vicr.com`). Browser roles cannot access these tables directly. The API checks the organizer allowlist on each request and validates presenter sessions before reading or changing records.
 
 Deploy the backend from this repository with the Supabase CLI after authenticating:
 
@@ -30,9 +30,11 @@ supabase functions deploy portal --project-ref rhnbdeowhxtjgzkhoczh --no-verify-
 
 The gateway legacy JWT verifier is disabled because presenters use their own scoped session tokens. Organizer JWTs are verified inside the function with `auth.getUser`. Supabase provides its service-role key to the function; never place it in frontend variables or GitHub Pages assets. The initial dashboard deployment contains an equivalent bundled module and entrypoint; subsequent CLI deployments use the source files in this repository.
 
+**Current organizer entry mode:** temporary email-only access, requested for the current review. Entering an approved address opens the real organizer workspace without an email or password. It does not prove ownership: anyone who knows an approved address can access organizer records and private presenter keys. The server still checks the database allowlist on every request; browser roles cannot query the tables directly. The chosen address is stored only in sessionStorage, and signing out removes it. Restore verified authentication before collecting confidential submissions. SMTP settings are retained but not used by this entry flow.
+
 Auth Site URL: `https://yujunge07.github.io/urtc-registration/`.
 Allowed redirect: `https://yujunge07.github.io/urtc-registration/?role=organizer`.
-Configure custom SMTP under Authentication → Emails → SMTP Settings before inviting external organizers. Supabase's default sender restricts recipients to organization team members and is unsuitable for external sign-in. Adding a portal organizer does not grant Supabase project administration rights.
+When restoring email verification, configure and test custom SMTP under Authentication → Emails → SMTP Settings. Supabase's default sender restricts recipients to organization team members and is unsuitable for external sign-in. Adding a portal organizer does not grant Supabase project administration rights.
 
 Local Pages preview:
 
