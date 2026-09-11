@@ -289,6 +289,7 @@ export function toTime(total: number) {
 }
 
 export function formatDate(date: string) {
+  if (!date) return 'Date to be confirmed';
   return new Intl.DateTimeFormat('en-US', {
     weekday: 'short',
     month: 'short',

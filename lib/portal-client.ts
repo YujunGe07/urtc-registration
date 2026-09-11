@@ -7,7 +7,7 @@ export const supabaseUrl =
 export const supabaseKey =
   typeof __URTC_SUPABASE_KEY__ !== 'undefined' ? __URTC_SUPABASE_KEY__ : '';
 export const backendConfigured = Boolean(supabaseUrl && supabaseKey);
-export const DEMO_KEY = 'URTC-DEMO-2027';
+export const DEMO_KEY = 'URTC-DEMO';
 const sessionKey = 'urtc-supabase-presenter-session';
 const organizerKey = 'urtc-organizer-email-entry';
 // Temporary allowlist gate requested for the current review. This does not verify identity.
@@ -41,7 +41,7 @@ export async function portalApi(
     pagesBuild &&
     (demoActive() ||
       (action?.kind === 'login' &&
-        String(action.key).trim().toUpperCase() === DEMO_KEY))
+        /^URTC-DEMO(?:-\d{4})?$/.test(String(action.key).trim().toUpperCase())))
   ) {
     const demo = await import('./presenter-demo');
     return demo.demoApi(action);

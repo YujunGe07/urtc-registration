@@ -142,7 +142,7 @@ function exportSchedule(data: PortalData) {
     }),
   ];
   saveFile(
-    'urtc-2027-schedule.csv',
+    'urtc-schedule.csv',
     '\uFEFF' + rows.map((r) => r.map(csvCell).join(',')).join('\r\n'),
     'text/csv;charset=utf-8',
   );
@@ -153,7 +153,7 @@ function calendarFile(data: PortalData, sub: Submission) {
   );
   const period =
     block && makePeriods(block).find((p) => p.id === sub.assignedPeriodId);
-  if (!block || !period) return;
+  if (!block || !period || !block.date) return;
   const esc = (s: string) =>
     s
       .replaceAll('\\', '\\\\')
@@ -192,7 +192,7 @@ function calendarFile(data: PortalData, sub: Submission) {
     `DTEND;TZID=America/Los_Angeles:${stamp(period.end)}`,
     `SUMMARY:${esc(sub.title)}`,
     `LOCATION:${esc(block.room)}`,
-    `DESCRIPTION:${esc('URTC 2027 · ' + block.track + ' · ' + block.title)}`,
+    `DESCRIPTION:${esc('URTC · ' + block.track + ' · ' + block.title)}`,
     'END:VEVENT',
     'END:VCALENDAR',
   ].join('\r\n');
@@ -387,16 +387,14 @@ export default function Home() {
           <span className="brand-mark">
             <Layers3 size={22} />
           </span>
-          <span>
-            URTC<span className="brand-year">2027</span>
-          </span>
+          <span>URTC</span>
           <span className="brand-divider" />
           <span className="brand-caption">Scheduling portal</span>
         </button>
         <div className="topbar-right">
           <span className="event-meta">
             <CalendarDays size={15} />
-            May 14–16, 2027
+            Date to be confirmed
             <span className="meta-divider" />
             Pacific Time
           </span>
@@ -465,14 +463,11 @@ export default function Home() {
               UNDERGRADUATE RESEARCH TECHNOLOGY CONFERENCE
             </span>
             <h1 ref={heading} tabIndex={-1}>
-              Great research.
+              Build your conference
               <br />
-              <span>A place on the schedule.</span>
+              <span>presentation schedule.</span>
             </h1>
-            <p>
-              Your next step starts here. Choose your workspace to prepare for
-              URTC 2027.
-            </p>
+            <p>Book a presentation time or organize the conference program.</p>
           </div>
           <div className="role-grid">
             <button
@@ -534,8 +529,10 @@ export default function Home() {
             </span>
           </div>
           <footer className="home-footer">
-            <span>URTC 2027 · Research worth sharing.</span>
-            <span>May 14–16 · All scheduling times in Pacific Time</span>
+            <span>URTC Scheduling Portal</span>
+            <span>
+              Date to be confirmed · All scheduling times in Pacific Time
+            </span>
           </footer>
         </main>
       ) : (
@@ -1273,9 +1270,14 @@ export default function Home() {
                           change this booking.
                         </p>
                         <div className="button-row">
-                          <Button onClick={() => calendarFile(data, own)}>
+                          <Button
+                            disabled={demoActive()}
+                            onClick={() => calendarFile(data, own)}
+                          >
                             <Download size={17} />
-                            Add to calendar
+                            {demoActive()
+                              ? 'Calendar available once date is set'
+                              : 'Add to calendar'}
                           </Button>
                           <Button variant="outline" onClick={() => setStep(2)}>
                             Change time
@@ -1306,7 +1308,7 @@ export default function Home() {
                 <div className="page-heading">
                   <div>
                     <span className="eyebrow">
-                      URTC 2027 / CONFERENCE MANAGEMENT
+                      URTC / CONFERENCE MANAGEMENT
                     </span>
                     <h1 ref={heading} tabIndex={-1}>
                       {view === 'overview'
@@ -1960,7 +1962,7 @@ export default function Home() {
               </>
             )}
             <footer className="workspace-footer">
-              <span>URTC 2027 Scheduling Portal</span>
+              <span>URTC Scheduling Portal</span>
               <span>
                 <ShieldCheck size={13} />
                 Shared conference schedule · Pacific Time
@@ -2494,12 +2496,7 @@ function BlockForm({
         </Field>
       </div>
       <Field label="Date">
-        <Input
-          type="date"
-          name="date"
-          required
-          defaultValue={b?.date ?? '2027-05-15'}
-        />
+        <Input type="date" name="date" required defaultValue={b?.date ?? ''} />
       </Field>
       <div className="form-columns">
         <Field label="Start time (Pacific)">

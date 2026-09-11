@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: 'URTC Scheduling Portal',
   description:
-    'Manage accepted research presentations, book conference sessions, and coordinate the URTC 2027 schedule.',
+    'Manage accepted research presentations, book conference sessions, and coordinate the URTC schedule.',
 };
 
 export default function RootLayout({

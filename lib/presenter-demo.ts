@@ -5,13 +5,15 @@ import {
   type SchedulerState,
 } from './scheduler';
 import { applyAction } from './scheduler-actions';
-const key = 'urtc-presenter-demo-v1';
+const key = 'urtc-presenter-demo-v2';
 function fresh() {
   const state = structuredClone(seedState);
-  state.submissions[0].key = 'URTC-DEMO-2027';
+  state.submissions[0].key = 'URTC-DEMO';
   state.submissions = state.submissions.filter((s) => s.id === 's-201');
   state.presenters = state.presenters.filter((p) => p.id === 'p-maya');
-  state.blocks = state.blocks.filter((b) => b.track === 'AI and Systems');
+  state.blocks = state.blocks
+    .filter((b) => b.track === 'AI and Systems')
+    .map((b) => ({ ...b, date: '' }));
   state.log = [];
   return state;
 }
@@ -42,8 +44,8 @@ export async function demoApi(
     };
   }
   if (action?.kind === 'login') {
-    if (String(action.key).trim().toUpperCase() !== 'URTC-DEMO-2027')
-      throw new Error('Use URTC-DEMO-2027 for this sample walkthrough.');
+    if (!/^URTC-DEMO(?:-\d{4})?$/.test(String(action.key).trim().toUpperCase()))
+      throw new Error('Use URTC-DEMO for this sample walkthrough.');
     sessionStorage.setItem('urtc-demo-active', 'yes');
   } else if (action) {
     if (sessionStorage.getItem('urtc-demo-active') !== 'yes')
