@@ -2487,3 +2487,52 @@ td:first-child {
 .step-item small {
   color: #9cb1cf;
 }
+.demo-banner {
+  padding: 14px 40px;
+  background: #edf4ff;
+  border-bottom: 1px solid #cfdef5;
+  color: #345581;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  font-size: 0.875rem;
+}
+.demo-banner > div:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+}
+.demo-banner strong {
+  font-weight: 650;
+}
+.demo-banner button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #bbceed;
+  background: white;
+  color: #315fa9;
+  border-radius: 7px;
+  padding: 7px 12px;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+.demo-banner + .workspace-grid {
+  min-height: calc(100vh - 145px);
+}
+@media (max-width: 700px) {
+  .demo-banner {
+    padding: 12px 18px;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+    font-size: 0.8rem;
+  }
+  .demo-banner > div:first-child {
+    gap: 5px;
+  }
+  .demo-banner button {
+    font-size: 0.75rem;
+  }
+}

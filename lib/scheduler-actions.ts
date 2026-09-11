@@ -8,7 +8,7 @@ import {
   makePeriods,
   toMinutes,
   seedState,
-} from './scheduler';
+} from './scheduler.ts';
 
 export class PortalError extends Error {
   constructor(

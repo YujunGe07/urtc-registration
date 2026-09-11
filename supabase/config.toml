@@ -1,0 +1,5 @@
+project_id = "urtc-registration"
+[functions.portal]
+# Presenter-key sessions do not use Supabase Auth JWTs. The function verifies
+# organizer JWTs with auth.getUser and verifies presenter tokens server-side.
+verify_jwt = false

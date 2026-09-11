@@ -62,6 +62,17 @@ import {
   emptyState,
 } from '@/lib/scheduler';
 
+import {
+  portalApi as api,
+  pagesBuild,
+  backendConfigured,
+  sendOrganizerLink,
+  organizerSignOut,
+  DEMO_KEY,
+  demoActive,
+  resetDemo,
+} from '@/lib/portal-client';
+
 type Role = 'home' | 'presenter' | 'organizer';
 type View = 'overview' | 'submissions' | 'blocks' | 'schedule';
 const blankData: PortalData = {
@@ -187,23 +198,6 @@ function calendarFile(data: PortalData, sub: Submission) {
   ].join('\r\n');
   saveFile('urtc-presentation.ics', content, 'text/calendar;charset=utf-8');
 }
-async function api(action?: Record<string, unknown>): Promise<PortalData> {
-  const r = await fetch(
-    '/api/portal',
-    action
-      ? {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(action),
-        }
-      : { cache: 'no-store' },
-  );
-  const result = (await r.json()) as PortalData & { error?: string };
-  if (!r.ok)
-    throw new Error(result.error ?? 'Unable to connect. Please try again.');
-  return result;
-}
-
 export default function Home() {
   const [role, setRole] = useState<Role>('home'),
     [view, setView] = useState<View>('overview');
@@ -233,10 +227,14 @@ export default function Home() {
   const [selectedSlot, setSelectedSlot] = useState(''),
     [note, setNote] = useState('');
   const [calendarDay, setCalendarDay] = useState('all');
+  const [organizerEmail, setOrganizerEmail] = useState('');
+  const [emailSent, setEmailSent] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     const sync = () => {
       const q = new URLSearchParams(window.location.search);
+      if (pagesBuild && q.get('role') === 'organizer')
+        sessionStorage.removeItem('urtc-demo-active');
       setRole(
         q.get('role') === 'organizer'
           ? 'organizer'
@@ -281,6 +279,10 @@ export default function Home() {
     }
   }
   function navigate(next: Role, nextView: View = 'overview') {
+    if (pagesBuild && next === 'organizer' && demoActive()) {
+      sessionStorage.removeItem('urtc-demo-active');
+      void refresh();
+    }
     setRole(next);
     setView(nextView);
     setSearch('');
@@ -291,7 +293,7 @@ export default function Home() {
       null,
       '',
       next === 'home'
-        ? '/'
+        ? window.location.pathname
         : `?role=${next}${next === 'organizer' ? `&view=${nextView}` : ''}`,
     );
   }
@@ -406,6 +408,57 @@ export default function Home() {
           )}
         </div>
       </header>
+      {pagesBuild && (
+        <div className="demo-banner">
+          <div>
+            <strong>
+              {demoActive()
+                ? 'Presenter demo'
+                : backendConfigured
+                  ? 'Presenter walkthrough available'
+                  : 'Preview · Sample data only'}
+            </strong>
+            <span>
+              {demoActive()
+                ? 'Changes stay in this browser tab. No real presentation is booked.'
+                : 'Try the presenter flow with key ' + DEMO_KEY + '.'}
+            </span>
+          </div>
+          <div className="button-row">
+            {demoActive() ? (
+              <button
+                onClick={async () => {
+                  await resetDemo();
+                  setStep(0);
+                  setSelectedSlot('');
+                  await refresh();
+                  navigate('presenter');
+                }}
+              >
+                Reset demo
+              </button>
+            ) : (
+              <button
+                onClick={async () => {
+                  setKeyInput(DEMO_KEY);
+                  if (
+                    await act(
+                      { kind: 'login', key: DEMO_KEY },
+                      'Presenter demo ready.',
+                    )
+                  ) {
+                    setLoadError(false);
+                    setStep(1);
+                    navigate('presenter');
+                  }
+                }}
+              >
+                Try presenter demo <ArrowRight size={15} />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       {role === 'home' ? (
         <main id="main" className="home-main">
           <div className="home-heading">
@@ -530,12 +583,26 @@ export default function Home() {
                       <strong>Conference organizer</strong>
                       <span>{data.email}</span>
                     </div>
-                    <a
-                      href="/signout-with-chatgpt?return_to=%2F"
-                      aria-label="Sign out of organizer account"
-                    >
-                      <LogOut size={17} />
-                    </a>
+                    {pagesBuild ? (
+                      <button
+                        className="icon-button"
+                        aria-label="Sign out of organizer account"
+                        onClick={async () => {
+                          await organizerSignOut();
+                          await refresh();
+                          navigate('home');
+                        }}
+                      >
+                        <LogOut size={17} />
+                      </button>
+                    ) : (
+                      <a
+                        href="/signout-with-chatgpt?return_to=%2F"
+                        aria-label="Sign out of organizer account"
+                      >
+                        <LogOut size={17} />
+                      </a>
+                    )}
                   </div>
                 )}
               </>
@@ -648,22 +715,96 @@ export default function Home() {
                     ? 'Organizer access required'
                     : 'Welcome, conference team.'}
                 </h1>
-                <p>
-                  {data.signedIn
-                    ? `${data.email} is not on the organizer list. Sign in with your approved account to continue.`
-                    : 'Sign in with your approved ChatGPT account to manage submissions and the conference schedule.'}
-                </p>
-                <a
-                  className="primary-link"
-                  href={
-                    data.signedIn
-                      ? '/signout-with-chatgpt?return_to=%2F%3Frole%3Dorganizer'
-                      : '/signin-with-chatgpt?return_to=%2F%3Frole%3Dorganizer'
-                  }
-                >
-                  {data.signedIn ? 'Switch account' : 'Continue with ChatGPT'}
-                  <ArrowRight size={17} />
-                </a>
+                {pagesBuild ? (
+                  <>
+                    <p>
+                      {!backendConfigured
+                        ? 'The shared conference is being connected. Presenter demo access is available now; real organizer sign-in will open after setup.'
+                        : data.signedIn
+                          ? `${data.email} is not an approved organizer. Please switch to your invited email address.`
+                          : 'Use your approved email address. We’ll send a secure sign-in link to your inbox.'}
+                    </p>
+                    {backendConfigured &&
+                      (data.signedIn ? (
+                        <Button
+                          onClick={async () => {
+                            await organizerSignOut();
+                            await refresh();
+                          }}
+                        >
+                          Switch account
+                        </Button>
+                      ) : (
+                        <form
+                          className="key-form"
+                          onSubmit={async (e) => {
+                            e.preventDefault();
+                            setBusy(true);
+                            try {
+                              await sendOrganizerLink(organizerEmail);
+                              setEmailSent(true);
+                              setNotice(null);
+                            } catch (error) {
+                              setNotice({
+                                text: (error as Error).message,
+                                error: true,
+                              });
+                            } finally {
+                              setBusy(false);
+                            }
+                          }}
+                        >
+                          <Field label="Organizer email">
+                            <Input
+                              type="email"
+                              value={organizerEmail}
+                              onChange={(e) =>
+                                setOrganizerEmail(e.target.value)
+                              }
+                              placeholder="you@university.edu"
+                              required
+                              autoComplete="email"
+                            />
+                          </Field>
+                          <Button disabled={busy} type="submit">
+                            {busy ? (
+                              <Loader2 className="spin" />
+                            ) : (
+                              'Email me a sign-in link'
+                            )}
+                          </Button>
+                          {emailSent && (
+                            <output className="muted">
+                              Check your inbox for a sign-in link. Open it in
+                              this browser to continue.
+                            </output>
+                          )}
+                        </form>
+                      ))}
+                  </>
+                ) : (
+                  <>
+                    {' '}
+                    <p>
+                      {data.signedIn
+                        ? `${data.email} is not on the organizer list. Sign in with your approved account to continue.`
+                        : 'Sign in with your approved ChatGPT account to manage submissions and the conference schedule.'}
+                    </p>
+                    <a
+                      className="primary-link"
+                      href={
+                        data.signedIn
+                          ? '/signout-with-chatgpt?return_to=%2F%3Frole%3Dorganizer'
+                          : '/signin-with-chatgpt?return_to=%2F%3Frole%3Dorganizer'
+                      }
+                    >
+                      {data.signedIn
+                        ? 'Switch account'
+                        : 'Continue with ChatGPT'}
+                      <ArrowRight size={17} />
+                    </a>
+                  </>
+                )}
                 <button
                   className="text-link"
                   onClick={() => navigate('presenter')}
